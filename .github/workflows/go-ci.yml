@@ -1,0 +1,101 @@
+name: "golang-ci-tests"
+on: push
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  golang-ci:
+    runs-on: self-hosted
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Add Git to PATH
+        run: |
+          sudo apt-get update
+          sudo apt-get install git -y
+          export PATH="$PATH:/usr/bin/git"
+        shell: bash
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          submodules: 'none'
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v1
+
+      - name: Check inputs
+        run: |
+          echo "Input folders: ${{ inputs.folders }}"
+        shell: bash
+
+      - name: Install pytest
+        run: |
+          sudo apt-get update
+          sudo apt-get install python3-pip -y
+          pip install pytest-testrail
+          pip install pytest
+          pip install pytest-json
+        shell: bash
+
+      # - name: Pull latest changes
+      #   run: git pull --rebase origin $GITHUB_REF
+      #   working-directory: ${{ github.workspace }}
+      #   shell: bash
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          submodules: 'none'
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: "1.1.0"
+
+      - name: Set GOPATH
+        run: |
+          if [ "$GITHUB_RUNNER_OS" = "Linux" ]; then
+            echo "export GOPATH=/home/ubuntu/go" >> $HOME/.bashrc
+          else
+            echo "export GOPATH=/home/runner/go" >> $HOME/.bashrc
+          fi
+          echo "export PATH=$PATH:/usr/local/go/bin:$GOPATH/bin" >> $HOME/.bashrc
+          source $HOME/.bashrc
+          echo 'PATH="/usr/local/go/bin:$PATH"' | sudo tee -a /etc/environment
+          # sudo systemctl restart github-runner
+          echo "GOPATH=$GOPATH" >> $GITHUB_ENV
+        shell: bash
+        env:
+          GOPATH: ''
+
+      - name: Clone provider repository
+        run: |
+          sudo mkdir -p $GOPATH/src/github.com/AviatrixSystems/
+          cd $GOPATH/src/github.com/AviatrixSystems
+          if [ ! -d "terraform-provider-aviatrix" ]; then
+            sudo git clone https://github.com/AviatrixSystems/terraform-provider-aviatrix.git
+            cd terraform-provider-aviatrix
+          else
+            cd terraform-provider-aviatrix
+            sudo git checkout master
+          fi
+          pwd
+        shell: bash
+        env:
+          GOPATH: ''
+      
+      - name: Install Go
+        run: |
+          sudo apt-get update
+          sudo apt-get install golang-go -y
+        shell: bash
+
+      - name: Build and run tests
+        run: |
+          cd terratest/test
+          go get github.com/gruntwork-io/terratest/modules/terraform
+          sudo go test -timeout 300s -v -count=1 ./*.go

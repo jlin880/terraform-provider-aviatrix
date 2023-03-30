@@ -1,0 +1,158 @@
+name: Terraform and Pytest
+
+description: 'Run Terraform init and Pytest for multiple folders'
+
+inputs:
+  folders:
+    description: 'A list of folders to run Terraform and Pytest'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+
+    - name: Add Git to PATH
+      run: |
+        sudo apt-get update
+        sudo apt-get install git -y
+        export PATH="$PATH:/usr/bin/git"
+      shell: bash
+
+    - name: Checkout code
+      uses: actions/checkout@v2
+      with:
+        submodules: 'none'
+
+    - name: Install Terraform
+      uses: hashicorp/setup-terraform@v1
+      with:
+        terraform_version: "1.1.0"
+
+    - name: Check inputs
+      run: |
+        echo "Input folders: ${{ inputs.folders }}"
+      shell: bash
+
+    - name: Install pytest
+      run: |
+        sudo apt-get update
+        sudo apt-get install python3-pip -y
+        pip install pytest-testrail
+        pip install pytest
+        pip install pytest-json
+      shell: bash
+
+    - name: Set up Go environment
+      uses: actions/setup-go@v2
+      with:
+        go-version: '1.17'
+
+    - name: Clone provider repository
+      run: |
+        cd $HOME/terraform
+        sudo wget https://releases.hashicorp.com/terraform/1.1.0/terraform_1.1.0_linux_amd64.zip
+        sudo apt-get install -y zip unzip
+        sudo apt-get install -y jq
+        sudo unzip -o  terraform_1.1.0_linux_amd64.zip
+        sudo mv terraform /usr/local/bin/
+        terraform -version
+        # Install Go
+        cd $HOME
+        wget https://golang.org/dl/go1.18.linux-amd64.tar.gz
+        sudo tar -C /usr/local -xzf go1.18.linux-amd64.tar.gz
+        cd ~
+        mkdir -p go
+        echo "export GOPATH=$HOME/go" > ~/.bash_profile
+        . ~/.bash_profile
+        echo $GOPATH
+        mkdir -p $GOPATH/src/github.com/AviatrixSystems/
+        cd $GOPATH/src/github.com/AviatrixSystems
+        if [ ! -d "terraform-provider-aviatrix" ]; then
+          git clone https://github.com/AviatrixSystems/terraform-provider-aviatrix.git
+          cd terraform-provider-aviatrix
+        else
+          cd terraform-provider-aviatrix
+          git checkout master
+        fi
+        sudo make fmt
+        sudo make build13
+        pwd
+      shell: bash
+      env:
+        GOPATH: ''
+
+    - name: Build provider
+      run: |
+        cd $GOPATH/src/github.com/AviatrixSystems/terraform-provider-aviatrix
+        pwd
+        sudo gofmt -w $(find . -name '*.go' |grep "aviatrix/")
+        sudo make fmt
+        sudo make build13
+        ls -l
+      shell: bash
+      env:
+        GOPATH: ''
+
+    - name: Run Terraform and Pytest
+      run: |
+        FOLDERS=$(echo "${{ inputs.folders }}" | sed 's/[][]//g' | sed 's/"//g')
+        IFS=',' read -ra FOLDERS <<< "$FOLDERS"
+        cd ${{ github.workspace }}/Terraform_Scripts_TF0.13/
+        for folder in "${FOLDERS[@]}"; do
+          echo "Current directory: $(pwd)"
+          echo "Changing to folder: $folder"
+          cd "$folder" || { echo "Failed to change to folder: $folder"; exit 1; }
+          echo "New directory: $(pwd)"
+          if [ "$GITHUB_RUNNER_OS" = "Linux" ]; then
+            echo "export GOPATH=/home/ubuntu/go" >> ~/.bash_profile
+          else
+            echo "export GOPATH=/home/runner/go" >> ~/.bash_profile
+          fi
+          source ~/.bash_profile
+          echo $GOPATH
+          touch $HOME/.terraformrc
+          chmod 777 $HOME/.terraformrc
+          echo 'providers {
+            aviatrix = "$GOPATH/bin/terraform-provider-aviatrix"
+          }' >> $HOME/.terraformrc
+          touch ~/.terraformrc
+          chmod 777 ~/.terraformrc
+          echo 'providers {
+            aviatrix = "$GOPATH/bin/terraform-provider-aviatrix"
+          }' >> ~/.terraformrc
+          terraform init || true
+          cd -
+          pwd
+          pytest "$folder" -sv --junitxml="$folder/test-results.xml" --json="$folder/test-results.json" || test_failed=true
+          # If the Pytest command failed, run Terraform apply with the .tfvars file found in the folder
+          if [[ $test_failed ]]; then
+            # Find the .tfvars file in the folder
+            tfvars_file=$(find . -type f -name "*.tfvars" -print -quit)
+
+            # Check if the .tfvars file was found
+            if [[ -z "$tfvars_file" ]]; then
+              echo "No .tfvars file found in the specified folder"
+              exit 1
+            fi
+
+            # Initialize Terraform
+            terraform init
+
+            # Apply the Terraform configuration using the found .tfvars file
+            terraform apply -auto-approve -var-file="$tfvars_file"
+
+            # Destroy the created infrastructure
+            terraform destroy -auto-approve -var-file="$tfvars_file"
+
+            # Remove the Terraform state files
+            rm -rf .terraform terraform.tfstate* backup.tfstate*
+          fi
+          echo "Test Results in XML"
+          cat "$folder/test-results.xml"
+          echo "Test Results in JSON"
+          cat "$folder/test-results.json"
+        done
+
+      shell: bash
+      env:
+        GOPATH: ''

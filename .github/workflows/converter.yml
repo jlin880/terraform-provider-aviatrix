@@ -1,0 +1,32 @@
+name: Convert to Terratest
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  convert-to-terratest:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.16
+
+    - name: Install Terraform
+      uses: hashicorp/setup-terraform@v1
+
+    - name: Convert tests to Terratest
+      run: |
+        cd aviatrix
+        for testFile in $(find . -name "*_test.go" | grep -v "_terratest.go"); do
+          echo "Converting $testFile to Terratest"
+          go run ../.github/actions/main.go $testFile
+        done
