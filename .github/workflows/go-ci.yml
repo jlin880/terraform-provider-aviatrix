@@ -96,6 +96,6 @@ jobs:
 
       - name: Build and run tests
         run: |
-          cd terratest/test
+          cd aviatrix
           go get github.com/gruntwork-io/terratest/modules/terraform
           sudo go test -timeout 300s -v -count=1 ./*.go
