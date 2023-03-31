@@ -1,12 +1,10 @@
 name: Convert to Terratest
+on: push
 
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+permissions:
+  contents: read
+  id-token: write
+
 
 jobs:
   convert-to-terratest:
