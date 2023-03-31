@@ -30,7 +30,7 @@ jobs:
   
   build:
     name: Build
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     if: github.repository == 'jlin880/automation_test_scripts'
     outputs:
       folders: ${{ steps.get_folders.outputs.folders }}
@@ -93,7 +93,7 @@ jobs:
 
   test:
     needs: build
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         folder: ${{ fromJson(needs.build.outputs.folders) }}
