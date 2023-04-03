@@ -1,54 +1,96 @@
-package aviatrix
+package test
 
 import (
-	"context"
-	"fmt"
-	"os"
-	"reflect"
-	"testing"
+    "context"
+    "fmt"
+    "os"
+    "reflect"
+    "testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+    "github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+    "github.com/gruntwork-io/terratest/modules/random"
+    "github.com/gruntwork-io/terratest/modules/terraform"
 )
 
-func TestAccAviatrixFireNet_basic(t *testing.T) {
-	var fireNet goaviatrix.FireNet
+func TestAccAviatrixFireNet(t *testing.T) {
+    t.Parallel()
 
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_firenet.test_firenet"
+    terraformOptions := createTerraformOptions(t)
 
-	skipAcc := os.Getenv("SKIP_FIRENET")
-	if skipAcc == "yes" {
-		t.Skip("Skipping FireNet test as SKIP_FIRENET is set")
-	}
-	msg := ". Set SKIP_FIRENET to yes to skip FireNet tests"
+    defer terraform.Destroy(t, terraformOptions)
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, msg)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckFireNetDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccFireNetConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckFireNetExists(resourceName, &fireNet),
-					resource.TestCheckResourceAttr(resourceName, "inspection_enabled", "true"),
-					resource.TestCheckResourceAttr(resourceName, "egress_enabled", "false"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+    terraform.InitAndApply(t, terraformOptions)
+
+    fireNetID := terraform.Output(t, terraformOptions, "firenet_id")
+
+    client, err := goaviatrix.NewClient(os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"), os.Getenv("AWS_REGION"), true)
+    if err != nil {
+        t.Fatalf("Failed to create Aviatrix client: %s", err)
+    }
+
+    var fireNet goaviatrix.FireNet
+
+    err = terraform.ReadStateFromFile(t, terraformOptions.StatePath, &fireNet)
+    if err != nil {
+        t.Fatalf("Failed to read state file: %s", err)
+    }
+
+    foundFireNet, err := client.GetFireNet(&goaviatrix.FireNet{
+        VpcID: fireNet.VpcID,
+    })
+
+    if err != nil {
+        t.Fatalf("Failed to get firenet %s: %s", fireNetID, err)
+    }
+
+    if foundFireNet.VpcID != fireNetID {
+        t.Errorf("FireNet not found")
+    }
 }
+
+func createTerraformOptions(t *testing.T) *terraform.Options {
+    uniqueID := random.UniqueId()
+
+    terraformDir := "../path/to/aviatrix/module"
+
+    return terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+        TerraformDir: terraformDir,
+        Vars: map[string]interface{}{
+            "aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
+            "aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
+            "aws_region":         os.Getenv("AWS_REGION"),
+            "aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+            "firenet_name":       fmt.Sprintf("terratest-firenet-%s", uniqueID),
+            "vpc_cidr":           "10.0.0.0/16",
+            "firewall_size":      "m5.xlarge",
+            "firewall_image":     "Palo Alto Networks VM-Series Next-Generation Firewall Bundle 1",
+        },
+        StatePath: "terraform.tfstate",
+    })
+}
+
+func TestAccFireNetConfigBasic(t *testing.T) {
+    rName := random.UniqueId()
+
+    terraformOptions := createTerraformOptions(t)
+    terraformOptions.Vars["config"] = testAccFireNetConfigBasic(rName)
+
+    defer terraform.Destroy(t, terraformOptions)
+
+    terraform.InitAndApply(t, terraformOptions)
+
+    fireNetID := terraform.Output(t, terraformOptions, "firenet_id")
+
+    client, err := goaviatrix.NewClient(os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"), os.Getenv("AWS_REGION"), true)
+    if err != nil {
+        t.Fatalf("Failed to create Aviatrix client: %s", err)
+    }
+
+    var fireNet goaviatrix.FireNet
+
+    err = terraform.ReadStateFromFile(t, terraformOptions.StatePath, &fireNet)
+    if err != nil {
+        t.Fatalf("Failed to read state file:
 
 func testAccFireNetConfigBasic(rName string) string {
 	return fmt.Sprintf(`

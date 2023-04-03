@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
@@ -6,82 +6,67 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestAccAviatrixControllerSecurityGroupManagementConfig_basic(t *testing.T) {
-	rName := acctest.RandString(5)
+func TestAviatrixControllerSecurityGroupManagementConfig(t *testing.T) {
+	t.Parallel()
 
-	skipAcc := os.Getenv("SKIP_CONTROLLER_SECURITY_GROUP_MANAGEMENT_CONFIG")
-	if skipAcc == "yes" {
+	// Skip the test if the environment variable is set
+	if os.Getenv("SKIP_CONTROLLER_SECURITY_GROUP_MANAGEMENT_CONFIG") == "yes" {
 		t.Skip("Skipping Controller Config test as SKIP_CONTROLLER_SECURITY_GROUP_MANAGEMENT_CONFIG is set")
 	}
-	msgCommon := ". Set SKIP_CONTROLLER_SECURITY_GROUP_MANAGEMENT_CONFIG to yes to skip Controller Security Group Management Config tests"
-	resourceName := "aviatrix_controller_security_group_management_config.test"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, msgCommon)
+	// Generate a random name to avoid naming conflicts
+	resourceName := fmt.Sprintf("aviatrix_controller_security_group_management_config.test-%s", random.UniqueId())
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../path/to/terraform/config/dir",
+		Vars: map[string]interface{}{
+			"account_name":       fmt.Sprintf("tfa-%s", random.UniqueId()),
+			"cloud_type":         1,
+			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_iam":            false,
+			"aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
+			"resource_name":      resourceName,
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckControllerSecurityGroupManagementConfigDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccControllerSecurityGroupManagementConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckControllerSecurityGroupManagementConfigExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "enable_security_group_management", "false"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
-}
-
-func testAccControllerSecurityGroupManagementConfigBasic(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_account" "test_account" {
-	account_name       = "tfa-%s"
-	cloud_type         = 1
-	aws_account_number = "%s"
-	aws_iam            = false
-	aws_access_key     = "%s"
-	aws_secret_key     = "%s"
-}
-resource "aviatrix_controller_security_group_management_config" "test" {
-	enable_security_group_management = false
-}
-	`, rName, os.Getenv("AWS_ACCOUNT_NUMBER"), os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"))
-}
-
-func testAccCheckControllerSecurityGroupManagementConfigExists(n string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[n]
-		if !ok {
-			return fmt.Errorf("controller security group management config ID Not found: %s", n)
-		}
-		if rs.Primary.ID == "" {
-			return fmt.Errorf("no controller security group management config ID is set")
-		}
-
-		client := testAccProvider.Meta().(*goaviatrix.Client)
-
-		if strings.Replace(client.ControllerIP, ".", "-", -1) != rs.Primary.ID {
-			return fmt.Errorf("controller security group management config ID not found")
-		}
-
-		return nil
 	}
+
+	// Destroy the infrastructure after the test is finished
+	defer terraform.Destroy(t, terraformOptions)
+
+	// Create the infrastructure using Terraform
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Check that the security group management config exists
+	checkControllerSecurityGroupManagementConfigExists(t, resourceName)
+
+	// Import the security group management config and verify it
+	terraform.Import(t, terraformOptions, resourceName)
+	checkControllerSecurityGroupManagementConfigExists(t, resourceName)
 }
+
+func checkControllerSecurityGroupManagementConfigExists(t *testing.T, resourceName string) {
+	client := goaviatrix.NewClient(os.Getenv("AVIATRIX_CONTROLLER_IP"), os.Getenv("AVIATRIX_USERNAME"), os.Getenv("AVIATRIX_PASSWORD"))
+	status, err := client.GetSecurityGroupManagementStatus()
+	assert.NoError(t, err)
+
+	// Verify that the security group management config is enabled
+	assert.False(t, status.EnableSecurityGroupManagement)
+
+	// Verify that the security group management config resource exists
+	rs, err := terraform.Show(t, terraformOptions, "aviatrix_controller_security_group_management_config.test")
+	assert.NoError(t, err)
+	assert.Equal(t, resourceName, rs.Primary.ID)
+
+	// Verify that the security group management config resource is associated with the correct controller
+	assert.Equal(t, strings.Replace(os.Getenv("AVIATRIX_CONTROLLER_IP"), ".", "-", -1), rs.Primary.ID)
+}
+
 
 func testAccCheckControllerSecurityGroupManagementConfigDestroy(s *terraform.State) error {
 	client := testAccProvider.Meta().(*goaviatrix.Client)

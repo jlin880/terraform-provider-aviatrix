@@ -1,52 +1,50 @@
-package aviatrix
+package test
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
+
+	goaviatrix "github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
 )
 
 func TestAccAviatrixFirewallTag_basic(t *testing.T) {
-	var ftag goaviatrix.FirewallTag
+	t.Parallel()
 
-	rInt := acctest.RandInt()
-	resourceName := "aviatrix_firewall_tag.foo"
-
-	skipAcc := os.Getenv("SKIP_FIREWALL_TAG")
-	if skipAcc == "yes" {
-		t.Skip("Skipping firewall tag test as SKIP_FIREWALL_TAG is set")
-	}
-
-	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckFirewallTagDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccFirewallTagConfigBasic(rInt),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckFirewallTagExists("aviatrix_firewall_tag.foo", &ftag),
-					resource.TestCheckResourceAttr(resourceName, "firewall_tag", fmt.Sprintf("tft-%d", rInt)),
-					resource.TestCheckResourceAttr(resourceName, "cidr_list.#", "2"),
-					resource.TestCheckResourceAttr(resourceName, "cidr_list.0.cidr", "10.1.0.0/24"),
-					resource.TestCheckResourceAttr(resourceName, "cidr_list.0.cidr_tag_name", "a1"),
-					resource.TestCheckResourceAttr(resourceName, "cidr_list.1.cidr", "10.2.0.0/24"),
-					resource.TestCheckResourceAttr(resourceName, "cidr_list.1.cidr_tag_name", "b1"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/aviatrix_firewall_tag",
+		Vars: map[string]interface{}{
+			"firewall_tag": fmt.Sprintf("tft-%s", random.UniqueId()),
+			"cidr_list": []map[string]string{
+				{
+					"cidr_tag_name": "a1",
+					"cidr":          "10.1.0.0/24",
+				},
+				{
+					"cidr_tag_name": "b1",
+					"cidr":          "10.2.0.0/24",
+				},
 			},
 		},
-	})
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	var firewallTag goaviatrix.FirewallTag
+	assert.NoError(t, goaviatrix.GetResourceByName(&firewallTag, terraformOptions.Var("firewall_tag").(string)))
+
+	assert.Equal(t, terraformOptions.Var("firewall_tag").(string), firewallTag.Name)
+	assert.Equal(t, "10.1.0.0/24", firewallTag.CIDRList[0].CIDR)
+	assert.Equal(t, "a1", firewallTag.CIDRList[0].CIDRTagName)
+	assert.Equal(t, "10.2.0.0/24", firewallTag.CIDRList[1].CIDR)
+	assert.Equal(t, "b1", firewallTag.CIDRList[1].CIDRTagName)
 }
+
 
 func testAccFirewallTagConfigBasic(rInt int) string {
 	return fmt.Sprintf(`

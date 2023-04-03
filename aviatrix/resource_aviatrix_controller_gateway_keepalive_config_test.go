@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
@@ -43,11 +44,11 @@ func TestAccAviatrixControllerGatewayKeepaliveConfig_basic(t *testing.T) {
 }
 
 func testAccControllerGatewayKeepaliveConfigBasic() string {
-	return `
+	return fmt.Sprintf(`
 resource "aviatrix_controller_gateway_keepalive_config" "test_gateway_keepalive" {
 	keepalive_speed = "slow"
 }
-`
+`)
 }
 
 func testAccCheckControllerGatewayKeepaliveConfigExists(n string) resource.TestCheckFunc {
@@ -79,7 +80,7 @@ func testAccCheckControllerGatewayKeepaliveConfigDestroy(s *terraform.State) err
 	client := testAccProvider.Meta().(*goaviatrix.Client)
 
 	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_gateway_keepalive_config" {
+		if rs.Type != "aviatrix_controller_gateway_keepalive_config" {
 			continue
 		}
 

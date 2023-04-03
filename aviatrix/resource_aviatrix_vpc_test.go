@@ -1,20 +1,18 @@
-package aviatrix
+package test
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixVpc_basic(t *testing.T) {
 	var vpc goaviatrix.Vpc
 
-	rName := acctest.RandString(5)
+	rName := RandomString(5)
 	resourceName := "aviatrix_vpc.test_vpc"
 
 	skipAcc := os.Getenv("SKIP_VPC")
@@ -31,196 +29,91 @@ func TestAccAviatrixVpc_basic(t *testing.T) {
 
 	if skipAccAWS != "yes" {
 		msgCommon := ". Set 'SKIP_VPC_AWS' to 'yes' to skip VPC tests in AWS"
-		resource.Test(t, resource.TestCase{
-			PreCheck: func() {
-				testAccPreCheck(t)
-				preAccountCheck(t, msgCommon)
+		terraformOptions := &terraform.Options{
+			TerraformDir: ".",
+			Vars: map[string]interface{}{
+				"account_name":       fmt.Sprintf("tfa-%s", rName),
+				"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+				"aws_iam":            false,
+				"aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
+				"aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
+				"vpc_name":           fmt.Sprintf("tfg-%s", rName),
+				"region":             os.Getenv("AWS_REGION"),
+				"cidr":               "10.0.0.0/16",
 			},
-			Providers:    testAccProviders,
-			CheckDestroy: testAccCheckVpcDestroy,
-			Steps: []resource.TestStep{
-				{
-					Config: testAccVpcConfigBasicAWS(rName),
-					Check: resource.ComposeTestCheckFunc(
-						testAccCheckVpcExists(resourceName, &vpc),
-						resource.TestCheckResourceAttr(resourceName, "name", fmt.Sprintf("tfg-%s", rName)),
-						resource.TestCheckResourceAttr(resourceName, "account_name", fmt.Sprintf("tfa-%s", rName)),
-						resource.TestCheckResourceAttr(resourceName, "cloud_type", "1"),
-						resource.TestCheckResourceAttr(resourceName, "aviatrix_transit_vpc", "false"),
-						resource.TestCheckResourceAttr(resourceName, "region", os.Getenv("AWS_REGION")),
-						resource.TestCheckResourceAttr(resourceName, "cidr", "10.0.0.0/16"),
-					),
-				},
-				{
-					ResourceName:      resourceName,
-					ImportState:       true,
-					ImportStateVerify: true,
-				},
-			},
-		})
+		}
+
+		defer terraform.Destroy(t, terraformOptions)
+
+		terraform.InitAndApply(t, terraformOptions)
+
+		testAccCheckVpcExists(t, terraformOptions, resourceName, &vpc)
+
+		assert.Equal(t, fmt.Sprintf("tfg-%s", rName), vpc.Name)
+		assert.Equal(t, fmt.Sprintf("tfa-%s", rName), vpc.AccountName)
+		assert.Equal(t, "1", vpc.CloudType)
+		assert.Equal(t, "10.0.0.0/16", vpc.CIDR)
+		assert.Equal(t, os.Getenv("AWS_REGION"), vpc.Region)
 	} else {
 		t.Log("Skipping VPC tests in AWS as 'SKIP_VPC_AWS' is set")
 	}
 
 	if skipAccGCP != "yes" {
 		msgCommon := ". Set 'SKIP_VPC_GCP' to 'yes' to skip VPC tests in GCP"
-		resource.Test(t, resource.TestCase{
-			PreCheck: func() {
-				testAccPreCheck(t)
-				preAccountCheck(t, msgCommon)
-			},
-			Providers:    testAccProviders,
-			CheckDestroy: testAccCheckVpcDestroy,
-			Steps: []resource.TestStep{
-				{
-					Config: testAccVpcConfigBasicGCP(rName),
-					Check: resource.ComposeTestCheckFunc(
-						testAccCheckVpcExists(resourceName, &vpc),
-						resource.TestCheckResourceAttr(resourceName, "name", fmt.Sprintf("tfg-%s", rName)),
-						resource.TestCheckResourceAttr(resourceName, "account_name", fmt.Sprintf("tfa-%s", rName)),
-						resource.TestCheckResourceAttr(resourceName, "cloud_type", "4"),
-						resource.TestCheckResourceAttr(resourceName, "subnets.#", "1"),
-						resource.TestCheckResourceAttr(resourceName, "subnets.0.region", "us-east1"),
-						resource.TestCheckResourceAttr(resourceName, "subnets.0.name", "us-east1-subnet"),
-						resource.TestCheckResourceAttr(resourceName, "subnets.0.cidr", "10.0.0.0/16"),
-					),
-				},
-				{
-					ResourceName:      resourceName,
-					ImportState:       true,
-					ImportStateVerify: true,
-				},
-			},
-		})
+		terraformOptions := &terraform.Options{
+			TerraformDir: ".",
+			Vars: map[string]interface{}{
+				"account_name":                  fmt.Sprintf("tfa-%s", rName),
+				"gcloud_project_id":             os.Getenv("GCP_ID"),
+				"gcloud_project_credentials":    os.Getenv("GCP_CREDENTIALS_FILEPATH"),
+				"vpc_name":                      fmt.Sprintf("tfg-%s", rName),
+				"subnets.0.region":              "us-east1",
+				"subnets.0.cidr":                "10.0
+
 	} else {
 		t.Log("Skipping VPC tests in GCP as 'SKIP_VPC_GCP' is set")
 	}
 
-	if skipAccAZURE != "yes" {
-		msgCommon := ". Set 'SKIP_VPC_AZURE' to 'yes' to skip VPC tests in Azure"
-		resource.Test(t, resource.TestCase{
-			PreCheck: func() {
-				testAccPreCheck(t)
-				preAccountCheck(t, msgCommon)
-			},
-			Providers:    testAccProviders,
-			CheckDestroy: testAccCheckVpcDestroy,
-			Steps: []resource.TestStep{
-				{
-					Config: testAccVpcConfigBasicAZURE(rName),
-					Check: resource.ComposeTestCheckFunc(
-						testAccCheckVpcExists(resourceName, &vpc),
-						resource.TestCheckResourceAttr(resourceName, "name", fmt.Sprintf("tfg-%s", rName)),
-						resource.TestCheckResourceAttr(resourceName, "account_name", fmt.Sprintf("tfa-%s", rName)),
-						resource.TestCheckResourceAttr(resourceName, "cloud_type", "8"),
-						resource.TestCheckResourceAttr(resourceName, "region", os.Getenv("AZURE_REGION")),
-						resource.TestCheckResourceAttr(resourceName, "cidr", "10.0.0.0/16"),
-					),
-				},
-				{
-					ResourceName:      resourceName,
-					ImportState:       true,
-					ImportStateVerify: true,
-				},
-			},
-		})
+	if os.Getenv("SKIP_VPC_AZURE") != "yes" {
+		testAccCheckVpcExists(t, terraformOptions, resourceName, &vpc)
+		testAccCheckVpcBasicAZURE(t, resourceName, &vpc)
 	} else {
 		t.Log("Skipping VPC tests in Azure as 'SKIP_VPC_AZURE' is set")
 	}
 }
+func testAccCheckVpcExists(t *testing.T, terraformOptions *terraform.Options, resourceName string, vpc *goaviatrix.Vpc) {
+	terraform.InitAndApply(t, terraformOptions)
 
-func testAccVpcConfigBasicAWS(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_account" "test_acc" {
-	account_name       = "tfa-%s"
-	cloud_type         = 1
-	aws_account_number = "%s"
-	aws_iam            = false
-	aws_access_key     = "%s"
-	aws_secret_key     = "%s"
-}
-resource "aviatrix_vpc" "test_vpc" {
-	cloud_type   = 1
-	account_name = aviatrix_account.test_acc.account_name
-	name         = "tfg-%s"
-	region       = "%s"
-	cidr         = "10.0.0.0/16"
-}
-`, rName, os.Getenv("AWS_ACCOUNT_NUMBER"), os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"),
-		rName, os.Getenv("AWS_REGION"))
-}
+	output := terraform.Show(t, terraformOptions)
+	expectedOutput := fmt.Sprintf(`%s = {
+  "account_name" = "%s"
+  "cidr" = "10.0.0.0/16"
+  "cloud_type" = "1"
+  "id" = ""
+  "name" = "%s"
+  "region" = "%s"
+  "subnets" = []
+}`, resourceName, fmt.Sprintf("tfa-%s", terraformOptions.Vars["r_name"].(string)), fmt.Sprintf("tfg-%s", terraformOptions.Vars["r_name"].(string)), os.Getenv("AWS_REGION"))
 
-func testAccVpcConfigBasicGCP(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_account" "test_acc" {
-	account_name                        = "tfa-%s"
-	cloud_type                          = 4
-	gcloud_project_id                   = "%s"
-	gcloud_project_credentials_filepath = "%s"
-}
-resource "aviatrix_vpc" "test_vpc" {
-	cloud_type   = 4
-	account_name = aviatrix_account.test_acc.account_name
-	name         = "tfg-%s"
-
-	subnets {
-		region = "us-east1"
-		cidr   = "10.0.0.0/16"
-		name   = "us-east1-subnet"
+	if output != expectedOutput {
+		t.Fatalf("Unexpected output:\n%s\nExpected output:\n%s", output, expectedOutput)
 	}
-}
-`, rName, os.Getenv("GCP_ID"), os.Getenv("GCP_CREDENTIALS_FILEPATH"), rName)
-}
 
-func testAccVpcConfigBasicAZURE(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_account" "test_acc" {
-	account_name        = "tfa-%s"
-	cloud_type          = 8
-	arm_subscription_id = "%s"
-	arm_directory_id    = "%s"
-	arm_application_id  = "%s"
-	arm_application_key = "%s"
-}
-resource "aviatrix_vpc" "test_vpc" {
-	cloud_type   = 8
-	account_name = aviatrix_account.test_acc.account_name
-	name         = "tfg-%s"
-	region       = "%s"
-	cidr         = "10.0.0.0/16"
-}
-`, rName, os.Getenv("ARM_SUBSCRIPTION_ID"), os.Getenv("ARM_DIRECTORY_ID"),
-		os.Getenv("ARM_APPLICATION_ID"), os.Getenv("ARM_APPLICATION_KEY"),
-		rName, os.Getenv("AZURE_REGION"))
-}
-
-func testAccCheckVpcExists(n string, vpc *goaviatrix.Vpc) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[n]
-		if !ok {
-			return fmt.Errorf("VPC Not found: %s", n)
-		}
-		if rs.Primary.ID == "" {
-			return fmt.Errorf("no VPC ID is set")
-		}
-
-		client := testAccProvider.Meta().(*goaviatrix.Client)
-
-		foundVpc := &goaviatrix.Vpc{
-			Name: rs.Primary.Attributes["name"],
-		}
-
-		foundVpc2, err := client.GetVpc(foundVpc)
-		if err != nil {
-			return err
-		}
-		if foundVpc2.Name != rs.Primary.ID {
-			return fmt.Errorf("VPC not found")
-		}
-
-		*vpc = *foundVpc2
-		return nil
+	client := goaviatrix.NewClient(os.Getenv("AVIATRIX_CONTROLLER_IP"), os.Getenv("AVIATRIX_USERNAME"), os.Getenv("AVIATRIX_PASSWORD"))
+	foundVpc := &goaviatrix.Vpc{
+		Name: fmt.Sprintf("tfg-%s", terraformOptions.Vars["r_name"].(string)),
 	}
+
+	err := client.GetVpc(foundVpc)
+	if err != nil {
+		t.Fatalf("Error getting VPC: %v", err)
+	}
+
+	if foundVpc.Name != fmt.Sprintf("tfg-%s", terraformOptions.Vars["r_name"].(string)) {
+		t.Fatalf("VPC not found")
+	}
+
+	*vpc = *foundVpc
 }
 
 func testAccCheckVpcDestroy(s *terraform.State) error {

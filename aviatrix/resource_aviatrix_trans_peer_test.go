@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
@@ -6,10 +6,66 @@ import (
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
+
+func TestAviatrixTransPeer(t *testing.T) {
+	t.Parallel()
+
+	awsRegion1 := os.Getenv("AWS_REGION")
+	awsRegion2 := os.Getenv("AWS_REGION2")
+	awsVpcID1 := os.Getenv("AWS_VPC_ID")
+	awsVpcID2 := os.Getenv("AWS_VPC_ID2")
+	awsSubnetID1 := os.Getenv("AWS_SUBNET")
+	awsSubnetID2 := os.Getenv("AWS_SUBNET2")
+	awsAccessKey := os.Getenv("AWS_ACCESS_KEY_ID")
+	awsSecretKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
+	awsAccountNumber := os.Getenv("AWS_ACCOUNT_NUMBER")
+	aviatrixAccountName := fmt.Sprintf("tfa-%s", random.UniqueId())
+	sourceGatewayName := fmt.Sprintf("tfg-%s", random.UniqueId())
+	nextHopGatewayName := fmt.Sprintf("tfg2-%s", random.UniqueId())
+	reachableCIDR := "192.168.0.0/16"
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../path/to/terraform/dir",
+		Vars: map[string]interface{}{
+			"account_name":         aviatrixAccountName,
+			"region1":              awsRegion1,
+			"region2":              awsRegion2,
+			"vpc_id1":              awsVpcID1,
+			"vpc_id2":              awsVpcID2,
+			"subnet1":              awsSubnetID1,
+			"subnet2":              awsSubnetID2,
+			"access_account_key":   awsAccessKey,
+			"secret_account_key":   awsSecretKey,
+			"aws_account_number":   awsAccountNumber,
+			"source":               sourceGatewayName,
+			"nexthop":              nextHopGatewayName,
+			"reachable_cidr":       reachableCIDR,
+		},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	client := goaviatrix.NewClient(os.Getenv("AVIATRIX_API_KEY"), os.Getenv("AVIATRIX_API_SECRET"), os.Getenv("AVIATRIX_CONTROLLER_IP"))
+
+	transPeer := &goaviatrix.TransPeer{
+		Source:        sourceGatewayName,
+		Nexthop:       nextHopGatewayName,
+		ReachableCidr: reachableCIDR,
+	}
+
+	foundTransPeer, err := client.GetTransPeer(transPeer)
+	assert.NoError(t, err)
+	assert.Equal(t, transPeer.Source, foundTransPeer.Source)
+	assert.Equal(t, transPeer.Nexthop, foundTransPeer.Nexthop)
+	assert.Equal(t, transPeer.ReachableCidr, foundTransPeer.ReachableCidr)
+}
+
 
 func preTransPeerCheck(t *testing.T, msgCommon string) {
 	preAvxTunnelCheck(t, msgCommon)

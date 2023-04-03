@@ -6,46 +6,40 @@ import (
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixAccountUser_basic(t *testing.T) {
 	var account goaviatrix.AccountUser
-
-	rInt := acctest.RandInt()
-	resourceName := "aviatrix_account_user.foo"
-	importStateVerifyIgnore := []string{"password"}
 
 	skipAcc := os.Getenv("SKIP_ACCOUNT_USER")
 	if skipAcc == "yes" {
 		t.Skip("Skipping Account User test as SKIP_ACCOUNT_USER is set")
 	}
 
-	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckAccountUserDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccAccountUserConfigBasic(rInt),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckAccountUserExists("aviatrix_account_user.foo", &account),
-					resource.TestCheckResourceAttr(resourceName, "username", fmt.Sprintf("tf-testing-%d", rInt)),
-					resource.TestCheckResourceAttr(resourceName, "email", "abc@xyz.com"),
-					resource.TestCheckResourceAttr(resourceName, "password", "Password-1234^"),
-				),
-			},
-			{
-				ResourceName:            resourceName,
-				ImportState:             true,
-				ImportStateVerify:       true,
-				ImportStateVerifyIgnore: importStateVerifyIgnore,
-			},
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./path/to/terraform/directory",
+		Vars: map[string]interface{}{
+			"username": fmt.Sprintf("tf-testing-%d", random.Random(1000)),
+			"email":    "abc@xyz.com",
+			"password": "Password-1234^",
 		},
-	})
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	resourceState := terraform.Show(t, terraformOptions, "-json")
+	assert.NoError(t, json.Unmarshal([]byte(resourceState), &account))
+
+	assert.Equal(t, fmt.Sprintf("tf-testing-%d", rInt), account.UserName)
+	assert.Equal(t, "abc@xyz.com", account.Email)
+	assert.Equal(t, "Password-1234^", account.Password)
 }
+
 
 func testAccAccountUserConfigBasic(rInt int) string {
 	return fmt.Sprintf(`

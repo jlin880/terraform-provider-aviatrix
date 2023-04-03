@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"testing"
 )
 
 func main() {
@@ -22,10 +23,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	re := regexp.MustCompile(`func\s+(\(.*?\)\s+)?(\w+)\(t\s+\*\w+\.T\)`)
+	re := regexp.MustCompile(`func\s+(\(.*?\)\s+)?(\w+)\(.*?\)`)
 	terratestFileContents := re.ReplaceAllStringFunc(string(testFileContents), func(match string) string {
 		// Extract the function name and signature from the matched string
-		re := regexp.MustCompile(`func\s+(\(.*?\)\s+)?(\w+)\(t\s+\*\w+\.T\)`)
+		re := regexp.MustCompile(`func\s+(\(.*?\)\s+)?(\w+)\(.*?\)`)
 		submatches := re.FindStringSubmatch(match)
 		if len(submatches) < 3 {
 			return match
@@ -34,11 +35,11 @@ func main() {
 		functionName := submatches[2]
 
 		// Create the Terratest test function
-		terratestTestFunc := fmt.Sprintf("func Test%s(t *testing.T) {\n\tConvertToTerratestTest(t, %s)\n}\n", functionName, functionName)
+		terratestTestFunc := fmt.Sprintf("func Test%s(t *testing.T) {\n\t%s(t)\n}\n", functionName, functionName)
 
 		// Add the signature to the Terratest test function
 		if signature != "" {
-			terratestTestFunc = fmt.Sprintf("func %s Test%s(t *testing.T) {\n\tConvertToTerratestTest(t, %s)\n}\n", signature, functionName, functionName)
+			terratestTestFunc = fmt.Sprintf("func %s Test%s(t *testing.T) {\n\t%s(t)\n}\n", signature, functionName, functionName)
 		}
 
 		return terratestTestFunc

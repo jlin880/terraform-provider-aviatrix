@@ -1,45 +1,85 @@
-package aviatrix
+package test
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/Azure/go-autorest/autorest/to"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestAccAviatrixFQDNTagRule_basic(t *testing.T) {
-	if os.Getenv("SKIP_FQDN_TAG_RULE") == "yes" {
-		t.Skip("Skipping fqdn tag rule test as SKIP_FQDN_TAG_RULE is set")
+func TestAviatrixFQDNTagRule(t *testing.T) {
+	t.Parallel()
+
+	// Define input variables
+	resourceName := fmt.Sprintf("test_fqdn_tag_rule_%s", random.UniqueId())
+	fqdnTagName := fmt.Sprintf("fqdn-%s", random.UniqueId())
+	fqdn := "*.aviatrix.com"
+	protocol := "tcp"
+	port := "443"
+	action := "Allow"
+
+	// Specify the Terraform module folder and variables
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"resource_name":    resourceName,
+			"fqdn_tag_name":    fqdnTagName,
+			"fqdn":             fqdn,
+			"protocol":         protocol,
+			"port":             port,
+			"action":           action,
+			"manage_domain_names": to.BoolPtr(false),
+			"fqdn_enabled":     to.BoolPtr(true),
+			"fqdn_mode":        "white",
+		},
 	}
 
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_fqdn_tag_rule.test_fqdn_tag_rule"
+	// Call terraform init and apply
+	defer terraform.Destroy(t, terraformOptions)
+	terraform.InitAndApply(t, terraformOptions)
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckFQDNDomainNameDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccFQDNDomainNameBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckFQDNDomainNameExists(resourceName),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	// Verify the FQDN tag rule exists
+	err := verifyFQDNTagRule(t, terraformOptions, resourceName, fqdnTagName, fqdn, protocol, port, action)
+	assert.NoError(t, err)
 }
+
+func verifyFQDNTagRule(t *testing.T, terraformOptions *terraform.Options, resourceName string, fqdnTagName string, fqdn string, protocol string, port string, action string) error {
+	// Get the FQDN tag rule ID from Terraform output
+	id := terraform.Output(t, terraformOptions, "fqdn_tag_rule_id")
+
+	// Create the Aviatrix client using environment variables
+	aviatrixClient, err := createAviatrixClientFromEnvironment()
+	if err != nil {
+		return err
+	}
+
+	// Get the FQDN tag rule
+	fqdnTagRule, err := aviatrixClient.GetFQDNTagRule(fqdnTagName, fqdn, protocol, port, action)
+	if err != nil {
+		return err
+	}
+
+	// Verify the FQDN tag rule exists and has the correct ID
+	if fqdnTagRule == nil {
+		return fmt.Errorf("FQDN tag rule not found: %s", fqdnTagName)
+	}
+	if fqdnTagRule.ID != id {
+		return fmt.Errorf("FQDN tag rule ID does not match: %s != %s", fqdnTagRule.ID, id)
+	}
+
+	// Verify the FQDN tag rule has the correct domain name
+	if len(fqdnTagRule.DomainList) != 1 {
+		return fmt.Errorf("FQDN tag rule does not have exactly 1 domain name: %d", len(fqdnTagRule.DomainList))
+	}
+	domain := fqdnTagRule.DomainList[0]
+	if domain.FQDN != fqdn {
+		return fmt.Errorf("FQDN tag rule domain name does not match: %s != %s", domain.FQDN, fqdn)
+	}
+	if domain.Protocol != protocol {
+		return fmt.Errorf("FQDN tag rule
 
 func testAccFQDNDomainNameBasic(rName string) string {
 	return fmt.Sprintf(`

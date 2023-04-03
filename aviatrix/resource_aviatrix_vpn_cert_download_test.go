@@ -1,54 +1,62 @@
-package aviatrix
+package test
 
 import (
-	"fmt"
-	"os"
-	"testing"
+    "fmt"
+    "os"
+    "testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+    "github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+    "github.com/gruntwork-io/terratest/modules/random"
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
 )
 
-func preVPNCertDownloadCheck(t *testing.T, msgCommon string) {
-	preGatewayCheck(t, msgCommon)
-	preSamlEndpointCheck(t, msgCommon)
-}
+func TestTerraformAviatrixVPNCertDownload(t *testing.T) {
+    t.Parallel()
 
-func TestAccAviatrixVPNCertDownload_basic(t *testing.T) {
-	resourceName := "aviatrix_vpn_cert_download.test_vpn_cert_download"
-	rName := acctest.RandString(5) //Name for dependant resources
+    skipVPNCertDownload := os.Getenv("SKIP_VPN_CERT_DOWNLOAD")
+    if skipVPNCertDownload == "true" {
+        t.Skip("Skipping test as SKIP_VPN_CERT_DOWNLOAD is set to true")
+    }
 
-	skipAcc := os.Getenv("SKIP_VPN_CERT_DOWNLOAD")
-	if skipAcc == "yes" {
-		t.Skip("Skipping Aviatrix VPN Cert Download Endpoint test as SKIP_VPN_CERT_DOWNLOAD is set")
-	}
-	msgCommon := ". Set SKIP_VPN_CERT_DOWNLOAD to yes to skip Aviatrix VPN Cert Download tests"
+    resourceGroupName := fmt.Sprintf("aviatrix-vpn-cert-download-test-%s", random.UniqueId())
+    samlEndpointName := fmt.Sprintf("aviatrix-saml-endpoint-test-%s", random.UniqueId())
+    vpnUserName := fmt.Sprintf("aviatrix-vpn-user-test-%s", random.UniqueId())
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preVPNCertDownloadCheck(t, msgCommon)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckVPNCertDownloadDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccVPNCertDownloadConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					tesAccCheckVPNCertDownloadExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "download_enabled", "true"),
-					resource.TestCheckResourceAttr(resourceName, "saml_endpoints.0", rName),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+    terraformOptions := &terraform.Options{
+        TerraformDir: "./",
+        Vars: map[string]interface{}{
+            "resource_group_name": resourceGroupName,
+            "saml_endpoint_name":  samlEndpointName,
+            "vpn_user_name":       vpnUserName,
+        },
+    }
+
+    defer terraform.Destroy(t, terraformOptions)
+
+    terraform.InitAndApply(t, terraformOptions)
+
+    // Check if VPN cert download resource exists
+    vpnCertDownloadResource := "aviatrix_vpn_cert_download.test_vpn_cert_download"
+    assert.True(t, terraform.OutputExists(t, terraformOptions, "aviatrix_vpn_cert_download.test_vpn_cert_download_id"))
+    assert.True(t, terraform.OutputExists(t, terraformOptions, "aviatrix_vpn_cert_download.test_vpn_cert_download_name"))
+
+    // Check if VPN cert download resource is enabled
+    client := goaviatrix.NewClient(os.Getenv("AVIATRIX_CONTROLLER_IP"), os.Getenv("AVIATRIX_USERNAME"), os.Getenv("AVIATRIX_PASSWORD"))
+    vpnCertDownloadStatus, err := client.GetVPNCertDownloadStatus()
+    require.NoError(t, err)
+    assert.True(t, vpnCertDownloadStatus.Results.Status)
+
+    // Check if SAML endpoint is associated with VPN cert download resource
+    vpnCertDownloadSamlEndpoints, err := client.GetVPNCertDownloadSamlEndpoints(vpnCertDownloadStatus.Results.ActionStatus, vpnCertDownloadStatus.Results.Info)
+    require.NoError(t, err)
+    assert.Equal(t, 1, len(vpnCertDownloadSamlEndpoints))
+    assert.Equal(t, samlEndpointName, vpnCertDownloadSamlEndpoints[0])
+
+    // Check if VPN user is associated with SAML endpoint
+    samlUser, err := client.GetSamlUser(samlEndpointName, vpnUserName)
+    require.NoError(t, err)
+    assert.NotNil(t, samlUser)
 }
 
 func testAccVPNCertDownloadConfigBasic(rName string) string {

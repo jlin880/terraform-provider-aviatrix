@@ -5,38 +5,70 @@ import (
 	"os"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
 )
 
 func TestAccAviatrixDeviceInterfaceConfig_basic(t *testing.T) {
-	if os.Getenv("SKIP_DEVICE_INTERFACE_CONFIG") == "yes" {
-		t.Skip("Skipping device interface config test as SKIP_DEVICE_INTERFACE_CONFIG is set")
+	t.Parallel()
+
+	skipIfEnvSet(t, "SKIP_DEVICE_INTERFACE_CONFIG")
+
+	deviceName := os.Getenv("CLOUDN_DEVICE_NAME")
+	uniqueID := random.UniqueId()
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./fixtures/device_interface_config",
+		Vars: map[string]interface{}{
+			"device_name": deviceName,
+			"resource_name": fmt.Sprintf("test_device_interface_config_%s", uniqueID),
+		},
 	}
 
-	resourceName := "aviatrix_device_interface_config.test_device_interface_config"
+	//terraform init and apply
+	defer terraform.Destroy(t, terraformOptions)
+	terraform.InitAndApply(t, terraformOptions)
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-		},
-		Providers: testAccProviders,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccDeviceInterfaceConfigBasic(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckDeviceInterfaceConfigExists(resourceName),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	//Get the instance of Client struct to perform tests
+	client := aviatrix.NewClient()
+
+	resourceName := fmt.Sprintf("aviatrix_device_interface_config.test_device_interface_config_%s", uniqueID)
+
+	//Read the resource attributes into struct using aviatrix API
+	device, err := client.GetDevice(&goaviatrix.Device{Name: deviceName})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	//Assert that the expected device and primary interface values are returned
+	assert.Equal(t, deviceName, device.Name)
+	assert.Equal(t, terraformOptions.Vars["wan_primary_interface"].(string), device.PrimaryInterface)
+
+	//Import the state into Terraform
+	importOpts := &terraform.ImportOptions{
+		TerraformAddr: resourceName,
+		ID:            resourceName,
+	}
+
+	//terraform import
+	terraform.Import(t, terraformOptions, *importOpts)
+
+	//terraform refresh to verify state
+	terraform.Refresh(t, terraformOptions)
+
+	//Verify that the imported state matches the terraform state
+	assert.NoError(t, terraform.OutputStruct(resourceName, &device))
 }
+
+func skipIfEnvSet(t *testing.T, envVar string) {
+	if os.Getenv(envVar) == "yes" {
+		t.Skip(fmt.Sprintf("Skipping test as %s is set", envVar))
+	}
+}
+
 
 func testAccDeviceInterfaceConfigBasic() string {
 	return fmt.Sprintf(`

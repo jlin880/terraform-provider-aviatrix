@@ -2,104 +2,65 @@ package aviatrix
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestAccAviatrixVPNProfile_basic(t *testing.T) {
-	var vpnProfile goaviatrix.Profile
+func TestTerraformAviatrixVPNProfile_basic(t *testing.T) {
+	t.Parallel()
 
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_vpn_profile.test_vpn_profile"
+	rName := fmt.Sprintf("tf-%s", RandomString(5))
+	resourceName := fmt.Sprintf("aviatrix_vpn_profile.test_vpn_profile")
 
 	skipAcc := os.Getenv("SKIP_VPN_PROFILE")
 	if skipAcc == "yes" {
 		t.Skip("Skipping VPN Profile test as SKIP_VPN_PROFILE is set")
 	}
-	msg := ". Set SKIP_VPN_PROFILE to yes to skip VPN Profile tests"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preGatewayCheck(t, msg)
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/aviatrix_vpn_profile/",
+		Vars: map[string]interface{}{
+			"res_name":           rName,
+			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
+			"aws_vpc_id":         os.Getenv("AWS_VPC_ID"),
+			"aws_region":         os.Getenv("AWS_REGION"),
+			"aws_subnet":         os.Getenv("AWS_SUBNET"),
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckVPNProfileDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccVPNProfileConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckVPNProfileExists("aviatrix_vpn_profile.test_vpn_profile", &vpnProfile),
-					resource.TestCheckResourceAttr(resourceName, "name", fmt.Sprintf("tfp-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "base_rule", "allow_all"),
-					resource.TestCheckResourceAttr(resourceName, "users.#", "1"),
-					resource.TestCheckResourceAttr(resourceName, "users.0", fmt.Sprintf("tfu-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "policy.#", "1"),
-					resource.TestCheckResourceAttr(resourceName, "policy.0.action", "deny"),
-					resource.TestCheckResourceAttr(resourceName, "policy.0.proto", "tcp"),
-					resource.TestCheckResourceAttr(resourceName, "policy.0.port", "443"),
-					resource.TestCheckResourceAttr(resourceName, "policy.0.target", "10.0.0.0/32"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
-}
-
-func testAccVPNProfileConfigBasic(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_account" "test_account" {
-	account_name       = "tfa-%s"
-	cloud_type         = 1
-	aws_account_number = "%s"
-	aws_iam            = false
-	aws_access_key     = "%s"
-	aws_secret_key     = "%s"
-}
-resource "aviatrix_gateway" "test_gw" {
-	cloud_type   = 1
-	account_name = aviatrix_account.test_account.account_name
-	gw_name      = "tfg-%s"
-	vpc_id       = "%s"
-	vpc_reg      = "%s"
-	gw_size      = "t2.micro"
-	subnet       = "%s"
-	vpn_access   = true
-	vpn_cidr     = "192.168.43.0/24" 
-	max_vpn_conn = "100"
-	enable_elb   = true
-	elb_name     = "tfl-%s"
-}
-resource "aviatrix_vpn_user" "test_vpn_user" {
-	vpc_id     = aviatrix_gateway.test_gw.vpc_id
-	gw_name    = aviatrix_gateway.test_gw.elb_name
-	user_name  = "tfu-%s"
-	user_email = "user@xyz.com"
-}
-resource "aviatrix_vpn_profile" "test_vpn_profile" {
-	name      = "tfp-%s"
-	base_rule = "allow_all"
-	users     = [aviatrix_vpn_user.test_vpn_user.user_name]
-	policy {
-		action = "deny"
-		proto  = "tcp"
-		port   = "443"
-		target = "10.0.0.0/32"
 	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	client := goaviatrix.NewClient(os.Getenv("AVIATRIX_API_KEY"), os.Getenv("AVIATRIX_API_SECRET"), os.Getenv("AVIATRIX_CONTROLLER_IP"))
+
+	vpnProfile, err := client.GetProfile(&goaviatrix.Profile{Name: fmt.Sprintf("tfp-%s", rName)})
+	assert.NoError(t, err)
+	assert.Equal(t, vpnProfile.Name, fmt.Sprintf("tfp-%s", rName))
+	assert.Equal(t, vpnProfile.BaseRule, "allow_all")
+	assert.Equal(t, vpnProfile.Users[0], fmt.Sprintf("tfu-%s", rName))
+	assert.Equal(t, vpnProfile.Policy[0].Action, "deny")
+	assert.Equal(t, vpnProfile.Policy[0].Proto, "tcp")
+	assert.Equal(t, vpnProfile.Policy[0].Port, "443")
+	assert.Equal(t, vpnProfile.Policy[0].Target, "10.0.0.0/32")
 }
-	`, rName, os.Getenv("AWS_ACCOUNT_NUMBER"), os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"),
-		rName, os.Getenv("AWS_VPC_ID"), os.Getenv("AWS_REGION"), os.Getenv("AWS_SUBNET"), rName, rName,
-		rName)
+
+func RandomString(n int) string {
+	var letter = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letter[rand.Intn(len(letter))]
+	}
+	return string(b)
 }
+
 
 func testAccCheckVPNProfileExists(n string, vpnProfile *goaviatrix.Profile) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
