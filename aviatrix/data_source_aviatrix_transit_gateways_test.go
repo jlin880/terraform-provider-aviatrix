@@ -1,104 +1,142 @@
-package aviatrix
+package test
 
 import (
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
 )
 
-func TestAccDataSourceAviatrixTransitGateways_basic(t *testing.T) {
-	rName := acctest.RandString(5)
-	resourceName := "data.aviatrix_transit_gateways.foo"
+func TestTerraformAviatrixDataSourceTransitGateways(t *testing.T) {
+	t.Parallel()
 
-	skipAcc := os.Getenv("SKIP_DATA_TRANSIT_GATEWAYS")
-	if skipAcc == "yes" {
-		t.Skip("Skipping Data Source All Transit Gateway tests as SKIP_DATA_TRANSIT_GATEWAYS is set")
+	awsVpcId := os.Getenv("AWS_VPC_ID")
+	awsRegion := os.Getenv("AWS_REGION")
+	awsSubnet := os.Getenv("AWS_SUBNET")
+	gcpProjectId := os.Getenv("GCP_ID")
+	gcpZone := os.Getenv("GCP_ZONE")
+	gcpSubnet := os.Getenv("GCP_SUBNET")
+
+	if awsVpcId == "" || awsRegion == "" || awsSubnet == "" || gcpProjectId == "" || gcpZone == "" || gcpSubnet == "" {
+		t.Fatal("Missing required environment variables")
 	}
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preGatewayCheck(t, ". Set SKIP_DATA_TRANSIT_GATEWAYS to yes to skip Data Source All Transit Gateway tests")
+
+	testAccountNameAws := fmt.Sprintf("aa-tfa-%s", random.UniqueId())
+	testAccountNameGcp := fmt.Sprintf("aa-tfa-gcp-%s", random.UniqueId())
+	gwNameAws := fmt.Sprintf("aa-tfg-aws-%s", random.UniqueId())
+	gwNameGcp := fmt.Sprintf("aa-tfg-gcp-%s", random.UniqueId())
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../../examples/aviatrix-data-sources-transit-gateways",
+		Vars: map[string]interface{}{
+			"account_name_aws":    testAccountNameAws,
+			"account_name_gcp":    testAccountNameGcp,
+			"aws_vpc_id":          awsVpcId,
+			"aws_region":          awsRegion,
+			"aws_subnet":          awsSubnet,
+			"gcp_project_id":      gcpProjectId,
+			"gcp_zone":            gcpZone,
+			"gcp_subnet":          gcpSubnet,
+			"gw_name_aws":         gwNameAws,
+			"gw_name_gcp":         gwNameGcp,
+			"gw_size_aws":         "t2.micro",
+			"gw_size_gcp":         "n1-standard-1",
 		},
-		Providers: testAccProviders,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccDataSourceAviatrixTransitGatewaysConfigBasic(rName),
+	}
 
-				Check: resource.ComposeTestCheckFunc(
-					testAccDataSourceAviatrixTransitGateways(resourceName),
-					resource.TestCheckResourceAttr("aviatrix_transit_gateway.test", "gw_name", fmt.Sprintf("aa-tfg-aws-%s", rName)),
-					resource.TestCheckResourceAttr("aviatrix_transit_gateway.test2", "gw_name", fmt.Sprintf("aa-tfg-gcp-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "gateway_list.0.gw_name", fmt.Sprintf("aa-tfg-aws-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "gateway_list.0.vpc_id", os.Getenv("AWS_VPC_ID")),
-					resource.TestCheckResourceAttr(resourceName, "gateway_list.0.vpc_reg", os.Getenv("AWS_REGION")),
-					resource.TestCheckResourceAttr(resourceName, "gateway_list.0.gw_size", "t2.micro"),
-					resource.TestCheckResourceAttr(resourceName, "gateway_list.1.gw_name", fmt.Sprintf("aa-tfg-gcp-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "gateway_list.1.gw_size", "n1-standard-1"),
-					resource.TestCheckResourceAttr(resourceName, "gateway_list.1.account_name", fmt.Sprintf("aa-tfa-gcp-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "gateway_list.1.subnet", os.Getenv("GCP_SUBNET")),
-					resource.TestCheckResourceAttr(resourceName, "gateway_list.1.vpc_reg", os.Getenv("GCP_ZONE")),
-				),
-			},
-		},
-	})
-}
+	defer terraform.Destroy(t, terraformOptions)
 
-func testAccDataSourceAviatrixTransitGatewaysConfigBasic(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_account" "test_account" {
-	account_name 	   = "aa-tfa-%[1]s"
-	cloud_type         = 1
-	aws_account_number = "%[2]s"
-	aws_iam            = "false"
-	aws_access_key     = "%[3]s"
-	aws_secret_key     = "%[4]s"
-}
-resource "aviatrix_transit_gateway" "test" {
-	cloud_type   = 1
-	account_name = aviatrix_account.test_account.account_name
-	gw_name      = "aa-tfg-aws-%[1]s"
-	vpc_id       = "%[5]s"
-	vpc_reg      = "%[6]s"
-	gw_size      = "t2.micro"
-	subnet       = "%[7]s"
-}
-resource "aviatrix_account" "test_acc_gcp" {
-	account_name                        = "aa-tfa-gcp-%[1]s"
-	cloud_type                          = 4
-	gcloud_project_id                   = "%[8]s"
-	gcloud_project_credentials_filepath = "%[9]s"
-}
-resource "aviatrix_transit_gateway" "test2" {				
-	cloud_type   = 4
-	account_name = aviatrix_account.test_acc_gcp.account_name
-	gw_name      = "aa-tfg-gcp-%[1]s"
-	vpc_id       = "%[10]s"
-	vpc_reg      = "%[11]s"
-	gw_size      = "n1-standard-1"
-	subnet       = "%[12]s"
-}
-data "aviatrix_transit_gateways" "foo" {
-    depends_on = [
-     aviatrix_transit_gateway.test,
-     aviatrix_transit_gateway.test2
-    ]
-}
-`, rName, os.Getenv("AWS_ACCOUNT_NUMBER"), os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"),
-		os.Getenv("AWS_VPC_ID"), os.Getenv("AWS_REGION"), os.Getenv("AWS_SUBNET"), os.Getenv("GCP_ID"), os.Getenv("GCP_CREDENTIALS_FILEPATH"),
-		os.Getenv("GCP_VPC_ID"), os.Getenv("GCP_ZONE"), os.Getenv("GCP_SUBNET"))
-}
+	terraform.InitAndApply(t, terraformOptions)
 
-func testAccDataSourceAviatrixTransitGateways(name string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		_, ok := s.RootModule().Resources[name]
+	checkState := func(state *terraform.State) error {
+		// Check if the data source exists
+		_, ok := state.RootModule().Resources["data.aviatrix_transit_gateways.foo"]
 		if !ok {
-			return fmt.Errorf("root module has no data source called %s", name)
+			return fmt.Errorf("data source not found")
 		}
-
 		return nil
 	}
+
+	terraform.Refresh(t, terraformOptions)
+	terraform.Validate(t, terraformOptions)
+	terraform.OutputAll(t, terraformOptions)
+	terraform.State(t, terraformOptions, checkState)
+}
+
+func TestAccDataSourceAviatrixTransitGateways_basic(t *testing.T) {
+	t.Parallel()
+
+	testName := fmt.Sprintf("aviatrix-transit-gateways-%s", random.UniqueId())
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/data-sources/transit-gateways",
+		Vars: map[string]interface{}{
+			"test_name": testName,
+			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key": os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key": os.Getenv("AWS_SECRET_KEY"),
+			"aws_region": os.Getenv("AWS_REGION"),
+			"aws_subnet": os.Getenv("AWS_SUBNET"),
+			"gcp_project_id": os.Getenv("GCP_ID"),
+			"gcp_credentials_file_path": os.Getenv("GCP_CREDENTIALS_FILEPATH"),
+			"gcp_subnet": os.Getenv("GCP_SUBNET"),
+			"gcp_zone": os.Getenv("GCP_ZONE"),
+			"aviatrix_version": "3.5",
+		},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	terraform.Output(t, terraformOptions, "all_transit_gateways")
+}
+func TestAccDataSourceAviatrixTransitGateways(t *testing.T) {
+    rName := acctest.RandString(5)
+    resourceName := "data.aviatrix_transit_gateways.foo"
+    
+    skipAcc := os.Getenv("SKIP_DATA_TRANSIT_GATEWAYS")
+    if skipAcc == "yes" {
+        t.Skip("Skipping Data Source All Transit Gateway tests as SKIP_DATA_TRANSIT_GATEWAYS is set")
+    }
+    
+    terraformOptions := &terraform.Options{
+        TerraformDir: "./",
+        Vars: map[string]interface{}{
+            "aviatrix_account_name": fmt.Sprintf("aa-tfa-%s", rName),
+            "aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+            "aws_access_key": os.Getenv("AWS_ACCESS_KEY"),
+            "aws_secret_key": os.Getenv("AWS_SECRET_KEY"),
+            "aws_vpc_id": os.Getenv("AWS_VPC_ID"),
+            "aws_region": os.Getenv("AWS_REGION"),
+            "aws_subnet": os.Getenv("AWS_SUBNET"),
+            "gcp_project_id": os.Getenv("GCP_ID"),
+            "gcp_credentials_file_path": os.Getenv("GCP_CREDENTIALS_FILEPATH"),
+            "gcp_vpc_id": os.Getenv("GCP_VPC_ID"),
+            "gcp_zone": os.Getenv("GCP_ZONE"),
+            "gcp_subnet": os.Getenv("GCP_SUBNET"),
+            "aviatrix_gw_name": fmt.Sprintf("aa-tfg-aws-%s", rName),
+            "aviatrix_gw_size": "t2.micro",
+            "aviatrix_gcp_gw_name": fmt.Sprintf("aa-tfg-gcp-%s", rName),
+            "aviatrix_gcp_gw_size": "n1-standard-1",
+        },
+    }
+    
+    defer terraform.Destroy(t, terraformOptions)
+    terraform.InitAndApply(t, terraformOptions)
+    
+    // Check that the data source exists
+    terraform.OutputRequired(t, terraformOptions, "data_source_exists")
+    
+    // Check the attributes of the data source
+    terraform.OutputRequired(t, terraformOptions, "gateway_list.0.gw_name")
+    terraform.OutputRequired(t, terraformOptions, "gateway_list.0.vpc_id")
+    terraform.OutputRequired(t, terraformOptions, "gateway_list.0.vpc_reg")
+    terraform.OutputRequired(t, terraformOptions, "gateway_list.0.gw_size")
+    terraform.OutputRequired(t, terraformOptions, "gateway_list.1.gw_name")
+    terraform.OutputRequired(t, terraformOptions, "gateway_list.1.gw_size")
+    terraform.OutputRequired(t, terraformOptions, "gateway_list.1.account_name")
+    terraform.OutputRequired(t, terraformOptions, "gateway_list.1.subnet")
+    terraform.OutputRequired(t, terraformOptions, "gateway_list.1.vpc_reg")
 }

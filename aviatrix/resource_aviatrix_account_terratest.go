@@ -1,53 +1,42 @@
-package aviatrix
+package aviatrix_test
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/aviatrix"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func preAccountCheck(t *testing.T, msgEnd string) {
-	requiredEnvVars := []string{
-		"AWS_ACCOUNT_NUMBER", "AWS_ACCESS_KEY", "AWS_SECRET_KEY",
-		"GCP_ID", "GCP_CREDENTIALS_FILEPATH",
-		"ARM_SUBSCRIPTION_ID", "ARM_DIRECTORY_ID", "ARM_APPLICATION_ID", "ARM_APPLICATION_KEY",
-		"OCI_TENANCY_ID", "OCI_USER_ID", "OCI_COMPARTMENT_ID", "OCI_API_KEY_FILEPATH",
-		"AWSGOV_ACCOUNT_NUMBER", "AWSGOV_ACCESS_KEY", "AWSGOV_SECRET_KEY",
-		"AZUREGOV_SUBSCRIPTION_ID", "AZUREGOV_DIRECTORY_ID", "AZUREGOV_APPLICATION_ID", "AZUREGOV_APPLICATION_KEY",
-		"AWSCHINA_IAM_ACCOUNT_NUMBER", "AWSCHINA_ACCOUNT_NUMBER", "AWSCHINA_ACCESS_KEY", "AWSCHINA_SECRET_KEY",
-		"AZURECHINA_SUBSCRIPTION_ID", "AZURECHINA_DIRECTORY_ID", "AZURECHINA_APPLICATION_ID", "AZURECHINA_APPLICATION_KEY",
-		"AWSTS_ACCOUNT_NUMBER", "AWSTS_CAP_URL", "AWSTS_CAP_AGENCY", "AWSTS_CAP_MISSION", "AWSTS_CAP_ROLE_NAME",
-		"AWSTS_CAP_CERT", "AWSTS_CAP_CERT_KEY", "AWSTS_CA_CHAIN_CERT",
-		"AWSS_ACCOUNT_NUMBER", "AWSS_CAP_URL", "AWSS_CAP_AGENCY", "AWSS_CAP_ACCOUNT_NAME", "AWSS_CAP_ROLE_NAME",
-		"AWSS_CAP_CERT", "AWSS_CAP_CERT_KEY", "AWSS_CA_CHAIN_CERT",
-	}
-
-	for _, envVar := range requiredEnvVars {
-		if os.Getenv(fmt.Sprintf("SKIP_ACCOUNT_%s", envVar)) != "no" {
-			continue
-		}
-
-		if os.Getenv(envVar) == "" {
-			t.Fatalf("%s must be set for acceptance tests. %s", envVar, msgEnd)
-		}
-	}
-}
-
 func TestAccAviatrixAccount_basic(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// Define the variables to pass to Terraform
+	awsAccessKey := os.Getenv("AWS_ACCESS_KEY")
+	awsSecretKey := os.Getenv("AWS_SECRET_KEY")
+	gcpProjectID := os.Getenv("GCP_ID")
+	gcpCredentialsFilepath := os.Getenv("GCP_CREDENTIALS_FILEPATH")
+	accountNameAWS := fmt.Sprintf("tfa-aws-%d", acctest.RandInt())
+	accountNameGCP := fmt.Sprintf("tfa-gcp-%d", acctest.RandInt())
+
+	// Define the Terraform options
 	terraformOptions := &terraform.Options{
 		TerraformDir: "./terraform/account",
 		Vars: map[string]interface{}{
-			"aws_access_key":                 os.Getenv("AWS_ACCESS_KEY"),
-			"aws_secret_key":                 os.Getenv("AWS_SECRET_KEY"),
-			"account_name_aws":               fmt.Sprintf("tfa-aws-%d", acctest.RandInt()),
-			"account_name_gcp":               fmt.Sprintf("tfa-gcp-%d", acctest.RandInt()),
-			"gcloud_project_id":              os.Getenv("GCP_ID"),
-			"gcloud_project_credentials_file": os.Getenv("GCP_CREDENTIALS_FILEPATH"),
+			"aws_access_key":                 awsAccessKey,
+			"aws_secret_key":                 awsSecretKey,
+			"account_name_aws":               accountNameAWS,
+			"account_name_gcp":               accountNameGCP,
+			"gcloud_project_id":              gcpProjectID,
+			"gcloud_project_credentials_file": gcpCredentialsFilepath,
 		},
 	}
 
@@ -56,44 +45,28 @@ func TestAccAviatrixAccount_basic(t *testing.T) {
 		t.Skip("Skipping Access Account test as SKIP_ACCOUNT is set")
 	}
 
-	// Test AWS account
-	if os.Getenv("SKIP_ACCOUNT_AWS") != "yes" {
-		t.Run("Test AWS Account", func(t *testing.T) {
-			terraformOptionsCopy := terraformOptions.Copy()
-			terraformOptionsCopy.TerraformDir = "./terraform/account/aws"
-
-			defer terraform.Destroy(t, terraformOptionsCopy)
-
-			terraform.InitAndApply(t, terraformOptionsCopy)
-
-			outputAccountId := terraform.Output(t, terraformOptionsCopy, "account_id")
-
-			assert.NotEmpty(t, outputAccountId)
-		})
-	}
-
 	// Test GCP account
 	if os.Getenv("SKIP_ACCOUNT_GCP") != "yes" {
 		t.Run("Test GCP Account", func(t *testing.T) {
-			terraformOptionsCopy := terraformOptions.Copy()
+			terraformOptionsCopy := terraform.CloneOptions(terraformOptions)
 			terraformOptionsCopy.TerraformDir = "./terraform/account/gcp"
+			terraformOptionsCopy.Vars["account_name"] = accountNameGCP
 
-			defer terraform.Destroy(t, terraformOptionsCopy)
+			defer terraform.Destroy(ctx, terraformOptionsCopy)
 
-			terraform.InitAndApply(t, terraformOptionsCopy)
+			terraform.InitAndApply(ctx, terraformOptionsCopy)
 
-			outputProjectId := terraform.Output(t, terraformOptionsCopy, "project_id")
-
+			outputProjectId := terraform.Output(ctx, terraformOptionsCopy, "project_id")
 			assert.NotEmpty(t, outputProjectId)
 		})
 	}
 
+	// Test Azure account
 	if os.Getenv("SKIP_ACCOUNT_AZURE") == "yes" {
 		t.Log("Skipping ARN Access Account test as SKIP_ACCOUNT_AZURE is set")
 	} else {
 		testAzureAccountConfig := testAccAccountConfigAZURE(rInt)
-	
-		// Create the Terraform options with the test directory and variable inputs
+
 		terraformOptions := &terraform.Options{
 			TerraformDir: "../../path/to/terraform/directory",
 			Vars: map[string]interface{}{
@@ -104,26 +77,39 @@ func TestAccAviatrixAccount_basic(t *testing.T) {
 				"arm_application_key": os.Getenv("ARM_APPLICATION_KEY"),
 			},
 		}
-	
-		// Defer the terraform destroy until the end of the test
+
 		defer terraform.Destroy(t, terraformOptions)
-	
-		// Run terraform init and apply
+
 		terraform.InitAndApply(t, terraformOptions)
-	
-		// Import the created resource state
+
 		resourceName := "aviatrix_account.azure"
 		importStateOptions := &terraform.ImportStateOpts{
 			ResourceName: resourceName,
 		}
 		err := terraform.ImportState(importStateOptions)
 		require.NoError(t, err)
-	
-		// Verify the imported resource state
+
 		err = aviatrix.VerifyAccountExists(resourceName, &account)
 		require.NoError(t, err)
 	}
 
+	// Test OCI account
+	if skipOCI == "yes" {
+		t.Log("Skipping OCI Access Account test as SKIP_ACCOUNT_OCI is set")
+	} else {
+		resourceName := "aviatrix_account.oci"
+		importStateVerifyIgnore = append(importStateVerifyIgnore, "oci_tenancy_id")
+		importStateVerifyIgnore = append(importStateVerifyIgnore, "oci_user_id")
+		importStateVerifyIgnore = append(importStateVerifyIgnore, "oci_compartment_id")
+		importStateVerifyIgnore = append(importStateVerifyIgnore, "oci_api_private_key_filepath")
+		resource.Test(t, resource.TestCase{
+			PreCheck:     func() { testAccPreCheck(t) },
+			Providers:    testAccProviders,
+			CheckDestroy: testAccCheckAccountDestroy,
+			Steps: []resource.TestStep{
+				{
+					Config: testAccAccountConfigOCI(rInt),
+					Check: resource.ComposeTestCheckFunc
 	if skipOCI == "yes" {
 		t.Log("Skipping OCI Access Account test as SKIP_ACCOUNT_OCI is set")
 	} else {

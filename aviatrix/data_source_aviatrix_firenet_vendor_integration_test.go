@@ -1,114 +1,72 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
 )
 
 func TestAccDataSourceAviatrixFireNetVendorIntegration_basic(t *testing.T) {
-	rName := acctest.RandString(5)
-	resourceName := "data.aviatrix_firenet_vendor_integration.test"
+	t.Parallel()
+
+	rName := random.UniqueId()
 
 	skipAcc := os.Getenv("SKIP_DATA_FIRENET_VENDOR_INTEGRATION")
 	if skipAcc == "yes" {
 		t.Skip("Skipping Data Source FireNet Vendor Integration test as SKIP_DATA_FIRENET_VENDOR_INTEGRATION is set")
 	}
-	msg := ". Set SKIP_DATA_FIRENET_VENDOR_INTEGRATION to yes to skip Data Source FireNet Vendor Integration tests"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, msg)
-		},
-		Providers: testAccProviders,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccDataSourceAviatrixFireNetVendorIntegrationConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccDataSourceAviatrixFireNetVendorIntegration(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "firewall_name", fmt.Sprintf("tffw-%s", rName)),
-				),
-			},
-		},
-	})
-}
+	terraformOptions, err := configureTerraformOptions(rName)
+	if err != nil {
+		t.Fatalf("Failed to configure Terraform options: %v", err)
+	}
 
-func testAccDataSourceAviatrixFireNetVendorIntegrationConfigBasic(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_account" "test_account" {
-	account_name       = "tfa-%s"
-	cloud_type         = 1
-	aws_account_number = "%s"
-	aws_iam            = false
-	aws_access_key     = "%s"
-	aws_secret_key     = "%s"
-}
-resource "aviatrix_vpc" "test_vpc" {
-	cloud_type           = 1
-	account_name         = aviatrix_account.test_account.account_name
-	region               = "%s"
-	name                 = "vpc-for-firenet"
-	cidr                 = "10.10.0.0/24"
-	aviatrix_firenet_vpc = true
-}
-resource "aviatrix_transit_gateway" "test_transit_gateway" {
-	cloud_type               = aviatrix_vpc.test_vpc.cloud_type
-	account_name             = aviatrix_account.test_account.account_name
-	gw_name                  = "tftg-%s"
-	vpc_id                   = aviatrix_vpc.test_vpc.vpc_id
-	vpc_reg                  = aviatrix_vpc.test_vpc.region
-	gw_size                  = "c5.xlarge"
-	subnet                   = aviatrix_vpc.test_vpc.subnets[0].cidr
-	enable_hybrid_connection = true
-	enable_firenet           = true
-}
-resource "aviatrix_firewall_instance" "test_firewall_instance" {
-	vpc_id            = aviatrix_vpc.test_vpc.vpc_id
-	firenet_gw_name   = aviatrix_transit_gateway.test_transit_gateway.gw_name
-	firewall_name     = "tffw-%s"
-	firewall_image    = "Palo Alto Networks VM-Series Next-Generation Firewall Bundle 1"
-	firewall_size     = "m5.xlarge"
-	management_subnet = aviatrix_vpc.test_vpc.subnets[0].cidr
-	egress_subnet     = aviatrix_vpc.test_vpc.subnets[1].cidr
-}
-resource "aviatrix_firenet" "test_firenet" {
-	vpc_id             = aviatrix_vpc.test_vpc.vpc_id
-	inspection_enabled = true
-	egress_enabled     = false
+	defer terraform.Destroy(t, terraformOptions)
+	terraform.InitAndApply(t, terraformOptions)
 
-	firewall_instance_association {
-		firenet_gw_name      = aviatrix_transit_gateway.test_transit_gateway.gw_name
-		instance_id          = aviatrix_firewall_instance.test_firewall_instance.instance_id
-		firewall_name        = aviatrix_firewall_instance.test_firewall_instance.firewall_name
-		attached             = true
-		lan_interface        = aviatrix_firewall_instance.test_firewall_instance.lan_interface
-		management_interface = aviatrix_firewall_instance.test_firewall_instance.management_interface
-		egress_interface     = aviatrix_firewall_instance.test_firewall_instance.egress_interface
+	resourceName := "data.aviatrix_firenet_vendor_integration.test"
+	check := testAccDataSourceAviatrixFireNetVendorIntegration(t, resourceName)
+
+	if err := check(terraformOptions); err != nil {
+		t.Fatalf("Failed test: %v", err)
 	}
 }
-data "aviatrix_firenet_vendor_integration" "test" {
-	vpc_id        = aviatrix_vpc.test_vpc.vpc_id
-	instance_id   = aviatrix_firewall_instance.test_firewall_instance.instance_id
-	vendor_type   = "Generic"
-	public_ip     = aviatrix_firewall_instance.test_firewall_instance.public_ip
-	username      = "admin"
-	password      = "Avx123456#"
-	firewall_name = aviatrix_firewall_instance.test_firewall_instance.firewall_name
-}
-	`, rName, os.Getenv("AWS_ACCOUNT_NUMBER"), os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"),
-		os.Getenv("AWS_REGION"), rName, rName)
+
+func configureTerraformOptions(rName string) (*terraform.Options, error) {
+	awsRegion := os.Getenv("AWS_REGION")
+	awsAccountNumber := os.Getenv("AWS_ACCOUNT_NUMBER")
+	awsAccessKey := os.Getenv("AWS_ACCESS_KEY")
+	awsSecretKey := os.Getenv("AWS_SECRET_KEY")
+
+	accountName := fmt.Sprintf("tfa-%s", rName)
+	gwName := fmt.Sprintf("tftg-%s", rName)
+	firewallName := fmt.Sprintf("tffw-%s", rName)
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/firenet_vendor_integration",
+		Vars: map[string]interface{}{
+			"aws_region":         awsRegion,
+			"aws_account_number": awsAccountNumber,
+			"aws_access_key":     awsAccessKey,
+			"aws_secret_key":     awsSecretKey,
+			"account_name":       accountName,
+			"gw_name":            gwName,
+			"firewall_name":      firewallName,
+		},
+	}
+
+	return terraformOptions, nil
 }
 
-func testAccDataSourceAviatrixFireNetVendorIntegration(name string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		_, ok := s.RootModule().Resources[name]
-		if !ok {
-			return fmt.Errorf("root module has no data source called %s", name)
+func testAccDataSourceAviatrixFireNetVendorIntegration(t *testing.T, resourceName string) resource.TestCheckFunc {
+	return func(terraformOptions *terraform.Options) error {
+		resourceState := terraform.GetResourceState(t, terraformOptions, resourceName)
+
+		if _, ok := resourceState.Attributes["firewall_name"]; !ok {
+			return fmt.Errorf("Expected firewall name to be set but it was not")
 		}
 
 		return nil

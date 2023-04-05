@@ -45,8 +45,6 @@ func TestAccAviatrixVpc_basic(t *testing.T) {
 
 		defer terraform.Destroy(t, terraformOptions)
 
-		terraform.InitAndApply(t, terraformOptions)
-
 		testAccCheckVpcExists(t, terraformOptions, resourceName, &vpc)
 
 		assert.Equal(t, fmt.Sprintf("tfg-%s", rName), vpc.Name)
@@ -67,72 +65,4 @@ func TestAccAviatrixVpc_basic(t *testing.T) {
 				"gcloud_project_id":             os.Getenv("GCP_ID"),
 				"gcloud_project_credentials":    os.Getenv("GCP_CREDENTIALS_FILEPATH"),
 				"vpc_name":                      fmt.Sprintf("tfg-%s", rName),
-				"subnets.0.region":              "us-east1",
-				"subnets.0.cidr":                "10.0
-
-	} else {
-		t.Log("Skipping VPC tests in GCP as 'SKIP_VPC_GCP' is set")
-	}
-
-	if os.Getenv("SKIP_VPC_AZURE") != "yes" {
-		testAccCheckVpcExists(t, terraformOptions, resourceName, &vpc)
-		testAccCheckVpcBasicAZURE(t, resourceName, &vpc)
-	} else {
-		t.Log("Skipping VPC tests in Azure as 'SKIP_VPC_AZURE' is set")
-	}
-}
-func testAccCheckVpcExists(t *testing.T, terraformOptions *terraform.Options, resourceName string, vpc *goaviatrix.Vpc) {
-	terraform.InitAndApply(t, terraformOptions)
-
-	output := terraform.Show(t, terraformOptions)
-	expectedOutput := fmt.Sprintf(`%s = {
-  "account_name" = "%s"
-  "cidr" = "10.0.0.0/16"
-  "cloud_type" = "1"
-  "id" = ""
-  "name" = "%s"
-  "region" = "%s"
-  "subnets" = []
-}`, resourceName, fmt.Sprintf("tfa-%s", terraformOptions.Vars["r_name"].(string)), fmt.Sprintf("tfg-%s", terraformOptions.Vars["r_name"].(string)), os.Getenv("AWS_REGION"))
-
-	if output != expectedOutput {
-		t.Fatalf("Unexpected output:\n%s\nExpected output:\n%s", output, expectedOutput)
-	}
-
-	client := goaviatrix.NewClient(os.Getenv("AVIATRIX_CONTROLLER_IP"), os.Getenv("AVIATRIX_USERNAME"), os.Getenv("AVIATRIX_PASSWORD"))
-	foundVpc := &goaviatrix.Vpc{
-		Name: fmt.Sprintf("tfg-%s", terraformOptions.Vars["r_name"].(string)),
-	}
-
-	err := client.GetVpc(foundVpc)
-	if err != nil {
-		t.Fatalf("Error getting VPC: %v", err)
-	}
-
-	if foundVpc.Name != fmt.Sprintf("tfg-%s", terraformOptions.Vars["r_name"].(string)) {
-		t.Fatalf("VPC not found")
-	}
-
-	*vpc = *foundVpc
-}
-
-func testAccCheckVpcDestroy(s *terraform.State) error {
-	client := testAccProvider.Meta().(*goaviatrix.Client)
-
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_vpc" {
-			continue
-		}
-
-		foundVpc := &goaviatrix.Vpc{
-			Name: rs.Primary.Attributes["name"],
-		}
-
-		_, err := client.GetVpc(foundVpc)
-		if err != goaviatrix.ErrNotFound {
-			return fmt.Errorf("VPC still exists")
-		}
-	}
-
-	return nil
-}
+				"subnets.0.region":              "

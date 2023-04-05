@@ -77,20 +77,20 @@ func testAccCheckVPNUserAcceleratorExists(t *testing.T, resourceName string) err
 
 
 func checkVPNUserAcceleratorDestroyed(t *testing.T, client *goaviatrix.Client, state *terraform.State) error {
-	for _, rs := range state.RootModule().Resources {
-		if rs.Type != "aviatrix_vpn_user_accelerator" {
-			continue
-		}
+    for _, rs := range state.RootModule().Resources {
+        if rs.Type != "aviatrix_vpn_user_accelerator" {
+            continue
+        }
 
-		elbList, err := client.GetVpnUserAccelerator()
-		if err != nil {
-			return fmt.Errorf("error retrieving vpn user accelerator: %s", err)
-		}
+        elbList, err := client.GetVpnUserAccelerator()
+        if err != nil {
+            return fmt.Errorf("error retrieving vpn user accelerator: %s", err)
+        }
 
-		if goaviatrix.Contains(elbList, rs.Primary.ID) {
-			return fmt.Errorf("vpn user accelerator still exists")
-		}
-	}
+        if goaviatrix.Contains(elbList, rs.Primary.ID) {
+            return fmt.Errorf("vpn user accelerator still exists")
+        }
+    }
 
-	return nil
+    return nil
 }

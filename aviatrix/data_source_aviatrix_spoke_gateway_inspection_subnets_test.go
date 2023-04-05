@@ -1,103 +1,75 @@
-package aviatrix
+package test
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
 )
 
 func TestAccDataSourceAviatrixSpokeGatewayInspectionSubnets_basic(t *testing.T) {
-	resourceName := "data.aviatrix_spoke_gateway_inspection_subnets.foo"
+	t.Parallel()
 
-	skipAcc := os.Getenv("SKIP_DATA_SPOKE_GATEWAY_INSPECTION_SUBNETS")
-	if skipAcc == "yes" {
-		t.Skip("Skipping Data Source Spoke Gateway Inspection Subnets test as SKIP_DATA_SPOKE_GATEWAY_INSPECTION_SUBNETS is set")
-	}
+	// Specify the subscription ID, directory ID, application ID, and application key for the Azure provider
+	subscriptionID := "<AZURE_SUBSCRIPTION_ID>"
+	directoryID := "<AZURE_DIRECTORY_ID>"
+	applicationID := "<AZURE_APPLICATION_ID>"
+	applicationKey := "<AZURE_APPLICATION_KEY>"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
+	// Construct the Terraform options with the path to Terraform code
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"subscription_id": subscriptionID,
+			"directory_id":    directoryID,
+			"application_id":  applicationID,
+			"application_key": applicationKey,
 		},
-		Providers: testAccProviders,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccDataSourceAviatrixSpokeGatewayInspectionSubnetsConfigBasic(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccDataSourceAviatrixSpokeGatewayInspectionSubnets(resourceName),
-					testAccCheckSpokeGatewayInspectionSubnetsMatch(resourceName, []string{"18.9.16.0/20~~test-vpc-Public-subnet-1", "18.9.32.0/20~~test-vpc-Private-subnet-1", "18.9.48.0/20~~test-vpc-Public-subnet-2", "18.9.64.0/20~~test-vpc-Private-subnet-2"}),
-				),
-			},
-		},
-	})
+	}
 
-}
+	// Clean up resources after the test is done
+	defer terraform.Destroy(t, terraformOptions)
 
-func testAccDataSourceAviatrixSpokeGatewayInspectionSubnetsConfigBasic() string {
-	return fmt.Sprintf(`
-resource "aviatrix_account" "test_acc" {
-	account_name        = "tfa-azure"
-	cloud_type          = 8
-	arm_subscription_id = "%s"
-	arm_directory_id    = "%s"
-	arm_application_id  = "%s"
-	arm_application_key = "%s"
-}
-resource "aviatrix_vpc" "test_vpc" {
-	cloud_type           = 8
-	account_name         = aviatrix_account.test_acc.account_name
-	region               = "West US"
-	name                 = "test-vpc"
-	cidr                 = "18.9.0.0/16"
-	aviatrix_firenet_vpc = false
-}
-resource "aviatrix_spoke_gateway" "test_spoke" {
-	cloud_type   = 8
-	account_name = aviatrix_account.test_acc.account_name
-	gw_name      = "test-spoke"
-	vpc_id       = aviatrix_vpc.test_vpc.vpc_id
-	vpc_reg      = aviatrix_vpc.test_vpc.region
-	gw_size      = "Standard_B1ms"
-	subnet       = aviatrix_vpc.test_vpc.subnets[0].cidr
-}
-data "aviatrix_spoke_gateway_inspection_subnets" "foo" {
-	gw_name = aviatrix_spoke_gateway.test_spoke.gw_name
-}
-    `, os.Getenv("ARM_SUBSCRIPTION_ID"), os.Getenv("ARM_DIRECTORY_ID"), os.Getenv("ARM_APPLICATION_ID"),
-		os.Getenv("ARM_APPLICATION_KEY"))
-}
+	// Deploy the Terraform code
+	terraform.InitAndApply(t, terraformOptions)
 
-func testAccDataSourceAviatrixSpokeGatewayInspectionSubnets(name string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		_, ok := s.RootModule().Resources[name]
-		if !ok {
-			return fmt.Errorf("root module has no data source called %s", name)
-		}
+	// Get the output variables
+	gatewayName := terraform.Output(t, terraformOptions, "gateway_name")
+	expectedSubnets := []string{"18.9.16.0/20~~test-vpc-Public-subnet-1", "18.9.32.0/20~~test-vpc-Private-subnet-1", "18.9.48.0/20~~test-vpc-Public-subnet-2", "18.9.64.0/20~~test-vpc-Private-subnet-2"}
 
-		return nil
+	// Verify that the spoke gateway inspection subnets match the expected subnets
+	actualSubnets, err := GetSpokeGatewayInspectionSubnets(t, gatewayName)
+	if err != nil {
+		t.Fatalf("Failed to get spoke gateway inspection subnets: %v", err)
+	}
+	if !Equivalent(actualSubnets, expectedSubnets) {
+		t.Fatalf("Spoke gateway inspection subnets do not match the expected subnets. Expected: %v, but got: %v", expectedSubnets, actualSubnets)
 	}
 }
 
-func testAccCheckSpokeGatewayInspectionSubnetsMatch(resourceName string, input []string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[resourceName]
-		if !ok {
-			return fmt.Errorf("data source spoke gateway inspection subnets not found: %s", resourceName)
-		}
+// GetSpokeGatewayInspectionSubnets returns the inspection subnets for a spoke gateway with the given name
+func GetSpokeGatewayInspectionSubnets(t *testing.T, gatewayName string) ([]string, error) {
+	client := GetAviatrixClient(t)
 
-		client := testAccProvider.Meta().(*goaviatrix.Client)
-
-		subnetsForInspection, err := client.GetSubnetsForInspection(rs.Primary.Attributes["gw_name"])
-		if err != nil {
-			return err
-		}
-		if !goaviatrix.Equivalent(subnetsForInspection, input) {
-			return fmt.Errorf("subnets don't match with the input")
-		}
-		return nil
+	subnets, err := client.GetSubnetsForInspection(gatewayName)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to get spoke gateway inspection subnets for gateway %s: %v", gatewayName, err)
 	}
+
+	return subnets, nil
 }
+
+// GetAviatrixClient returns an Aviatrix API client
+func GetAviatrixClient(t *testing.T) *goaviatrix.Client {
+	aviatrixAccessKey := "<AVIATRIX_ACCESS_KEY>"
+	aviatrixSecretKey := "<AVIATRIX_SECRET_KEY>"
+	aviatrixAPIEndpoint := "<AVIATRIX_API_ENDPOINT>"
+	client, err := goaviatrix.NewClient(aviatrixAccessKey, aviatrixSecretKey, aviatrixAPIEndpoint)
+	if err != nil {
+		t.Fatalf("Failed to create Aviatrix API client: %v", err)
+	}
+	return client
+}
+
+// Equivalent returns true if the two slices have the same elements, regardless of order

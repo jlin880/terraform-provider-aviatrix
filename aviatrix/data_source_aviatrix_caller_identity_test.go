@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
@@ -6,38 +6,60 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/aviatrix"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
 )
 
 func TestAccDataSourceAviatrixCallerIdentity_basic(t *testing.T) {
-	rName := acctest.RandString(5)
-	resourceName := "data.aviatrix_caller_identity.foo"
+	t.Parallel()
 
-	skipAcc := os.Getenv("SKIP_DATA_CALLER_IDENTITY")
-	if skipAcc == "yes" {
+	testCid := os.Getenv("AVIATRIX_CID")
+	skipIdentity := os.Getenv("SKIP_DATA_CALLER_IDENTITY")
+	if skipIdentity == "true" {
 		t.Skip("Skipping Data Source Caller Identity test as SKIP_DATA_CALLER_IDENTITY is set")
 	}
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, ". Set SKIP_DATA_CALLER_IDENTITY to yes to skip Data Source Caller Identity tests")
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"cid": testCid,
 		},
-		Providers: testAccProviders,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccDataSourceAviatrixCallerIdentityConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccDataSourceAviatrixCallerIdentity(resourceName),
-				),
-			},
-		},
-	})
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	output := terraform.Output(t, terraformOptions, "version")
+	if !strings.Contains(output, ".") {
+		t.Fatalf("Expected version to contain '.' but got %s", output)
+	}
 }
+
+func TestMain(m *testing.M) {
+	testCid := os.Getenv("AVIATRIX_CID")
+	if testCid == "" {
+		fmt.Println("Missing environment variable AVIATRIX_CID")
+		os.Exit(1)
+	}
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"cid": testCid,
+		},
+	}
+
+	terraform.InitAndApply(m, terraformOptions)
+
+	exitVal := m.Run()
+
+	defer terraform.Destroy(m, terraformOptions)
+
+	os.Exit(exitVal)
+}
+
 
 func testAccDataSourceAviatrixCallerIdentityConfigBasic(rName string) string {
 	return `

@@ -1,14 +1,43 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
+func TestAccDataSourceAviatrixControllerMetadata_basic(t *testing.T) {
+	t.Parallel()
+
+	// Skips the test if the environment variable is set
+	if skip, ok := os.LookupEnv("SKIP_DATA_CONTROLLER_METADATA"); ok && skip == "yes" {
+		t.Skip("Skipping Data Source Controller Metadata test as SKIP_DATA_CONTROLLER_METADATA is set")
+	}
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: ".",
+	}
+
+	// Clean up resources after the test is complete
+	defer terraform.Destroy(t, terraformOptions)
+
+	// Create resources needed for the test
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Test that the data source returns expected results
+	data := terraform.Output(t, terraformOptions, "metadata")
+	assert.NotEmpty(t, data)
+
+	// Additional assertions can be made here based on the metadata returned
+	// Example:
+	// assert.Contains(t, data, "aviatrix_version")
+	// assert.Contains(t, data, "product_name")
+
+	fmt.Println("Controller Metadata:\n", data)
+}
 func TestAccDataSourceAviatrixControllerMetadata_basic(t *testing.T) {
 	resourceName := "data.aviatrix_controller_metadata.foo"
 
@@ -17,28 +46,27 @@ func TestAccDataSourceAviatrixControllerMetadata_basic(t *testing.T) {
 		t.Skip("Skipping Data Source Controller Metadata test as SKIP_DATA_CONTROLLER_METADATA is set")
 	}
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, ". Set SKIP_DATA_CONTROLLER_METADATA to yes to skip Data Source Controller Metadata tests")
+	testAccProvider := aviatrixProvider()
+	testAccProviders := map[string]terraform.ResourceProvider{
+		"aviatrix": testAccProvider,
+	}
+
+	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+		TerraformDir: ".",
+		EnvVars: map[string]string{
+			"SKIP_DATA_CONTROLLER_METADATA": skipAcc,
 		},
 		Providers: testAccProviders,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccDataSourceAviatrixControllerMetadataConfigBasic(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccDataSourceAviatrixControllerMetadata(resourceName),
-				),
-			},
-		},
 	})
-}
 
-func testAccDataSourceAviatrixControllerMetadataConfigBasic() string {
-	return `
-data "aviatrix_controller_metadata" "foo" {
-}
-	`
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	err := testAccDataSourceAviatrixControllerMetadata(resourceName)(terraformOptions.State)
+	if err != nil {
+		t.Fatalf("failed to verify data source: %s", err)
+	}
 }
 
 func testAccDataSourceAviatrixControllerMetadata(name string) resource.TestCheckFunc {

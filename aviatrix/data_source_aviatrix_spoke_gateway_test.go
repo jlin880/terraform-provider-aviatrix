@@ -1,26 +1,68 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccDataSourceAviatrixSpokeGateway_basic(t *testing.T) {
-	rName := acctest.RandString(5)
-	resourceName := "data.aviatrix_spoke_gateway.foo"
-
-	skipAcc := os.Getenv("SKIP_DATA_SPOKE_GATEWAY")
-	if skipAcc == "yes" {
-		t.Skip("Skipping Data Source Spoke Gateway tests as SKIP_DATA_SPOKE_GATEWAY is set")
+	rName := fmt.Sprintf("terratest-%s", RandomString(5))
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"aws_region":           os.Getenv("AWS_REGION"),
+			"aws_account_number":   os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key":       os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":       os.Getenv("AWS_SECRET_KEY"),
+			"aws_vpc_id":           os.Getenv("AWS_VPC_ID"),
+			"aws_subnet":           os.Getenv("AWS_SUBNET"),
+			"azure_region":         os.Getenv("AZURE_REGION"),
+			"azure_vnet_id":        os.Getenv("AZURE_VNET_ID"),
+			"azure_subnet":         os.Getenv("AZURE_SUBNET"),
+			"azure_gw_size":        os.Getenv("AZURE_GW_SIZE"),
+			"arm_subscription_id":  os.Getenv("ARM_SUBSCRIPTION_ID"),
+			"arm_directory_id":     os.Getenv("ARM_DIRECTORY_ID"),
+			"arm_application_id":   os.Getenv("ARM_APPLICATION_ID"),
+			"arm_application_key":  os.Getenv("ARM_APPLICATION_KEY"),
+			"gcp_id":               os.Getenv("GCP_ID"),
+			"gcp_zone":             os.Getenv("GCP_ZONE"),
+			"gcp_subnet":           os.Getenv("GCP_SUBNET"),
+			"gcp_credentials_file": os.Getenv("GCP_CREDENTIALS_FILEPATH"),
+			"gcp_gw_size":          os.Getenv("GCP_GW_SIZE"),
+		},
 	}
+	defer terraform.Destroy(t, terraformOptions)
 
 	skipAccAWS := os.Getenv("SKIP_DATA_SPOKE_GATEWAY_AWS")
+	if skipAccAWS == "yes" {
+		t.Skip("Skipping Data Source Spoke Gateway tests in AWS as SKIP_DATA_SPOKE_GATEWAY_AWS is set")
+	}
+
 	skipAccAZURE := os.Getenv("SKIP_DATA_SPOKE_GATEWAY_AZURE")
+	if skipAccAZURE == "yes" {
+		t.Skip("Skipping Data Source Spoke Gateway tests in Azure as SKIP_DATA_SPOKE_GATEWAY_AZURE is set")
+	}
+
+	skipAccGCP := os.Getenv("SKIP_DATA_SPOKE_GATEWAY_GCP")
+	if skipAccGCP == "yes" {
+		t.Skip("Skipping Data Source Spoke Gateway tests in GCP as SKIP_DATA_SPOKE_GATEWAY_GCP is set")
+	}
+
+	if skipAccAWS != "yes" {
+		terraformOptions.Vars["aws_account_name"] = fmt.Sprintf("tfa-aws-%s", rName)
+		terraformOptions.Vars["aws_gw_name"] = fmt.Sprintf("tfg-aws-%s", rName)
+		terraformOptions.Vars["aws_gw_size"] = "t2.micro"
+		testAccDataSourceAviatrixSpokeGateway(t, terraformOptions, "aws", rName)
+	}
+
+	if skipAccAZURE != "yes" {
+		terraformOptions.Vars["azure_account_name"] = fmt.Sprintf("tfa-azure-%s", rName)
+		terraformOptions.Vars["azure_gw_name"] = fmt.Sprintf("tfg-azure-%
+
 	skipAccGCP := os.Getenv("SKIP_DATA_SPOKE_GATEWAY_GCP")
 	if skipAccAWS == "yes" && skipAccAZURE == "yes" && skipAccGCP == "yes" {
 		t.Skip("Skipping Data Source Spoke gateway tests as SKIP_DATA_SPOKE_GATEWAY_AWS, SKIP_DATA_SPOKE_GATEWAY_AZURE and " +

@@ -1,78 +1,51 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
-
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
 )
 
 func TestAccDataSourceAviatrixVpc_basic(t *testing.T) {
-	rName := acctest.RandString(5)
-	resourceName := "data.aviatrix_vpc.test"
+	t.Parallel()
 
-	skipAcc := os.Getenv("SKIP_DATA_VPC")
-	if skipAcc == "yes" {
-		t.Skip("Skipping data source vpc tests as 'SKIP_DATA_VPC' is set")
+	awsRegion := os.Getenv("AWS_REGION")
+	awsAccountID := os.Getenv("AWS_ACCOUNT_ID")
+
+	// Skip test if environment variables are not set
+	if awsRegion == "" || awsAccountID == "" {
+		t.Skip("Skipping test due to missing AWS_REGION and/or AWS_ACCOUNT_ID environment variables")
 	}
 
-	msg := ". Set 'SKIP_DATA_VPC' to 'yes' to skip data source vpc tests"
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preGatewayCheck(t, msg)
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"region":       awsRegion,
+			"account_name": fmt.Sprintf("tfa-%s", random.UniqueId()),
+			"name":         fmt.Sprintf("tfv-%s", random.UniqueId()),
+			"cidr":         "10.0.0.0/16",
+			"aws_account":  awsAccountID,
 		},
-		Providers: testAccProviders,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccDataSourceAviatrixVpcConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccDataSourceAviatrixVpc(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "name", fmt.Sprintf("tfv-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "account_name", fmt.Sprintf("tfa-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "region", os.Getenv("AWS_REGION")),
-					resource.TestCheckResourceAttr(resourceName, "cidr", "10.0.0.0/16"),
-				),
-			},
-		},
-	})
-}
+	}
 
-func testAccDataSourceAviatrixVpcConfigBasic(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_account" "test" {
-	account_name       = "tfa-%s"
-	cloud_type         = 1
-	aws_account_number = "%s"
-	aws_iam            = false
-	aws_access_key     = "%s"
-	aws_secret_key     = "%s"
-}
-resource "aviatrix_vpc" "test" {
-	cloud_type   = 1
-	account_name = aviatrix_account.test.account_name
-	name         = "tfv-%s"
-	region       = "%s"
-	cidr         = "10.0.0.0/16"
-}
-data "aviatrix_vpc" "test" {
-	name = aviatrix_vpc.test.name
-}
-	`, rName, os.Getenv("AWS_ACCOUNT_NUMBER"), os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"),
-		rName, os.Getenv("AWS_REGION"))
-}
+	defer terraform.Destroy(t, terraformOptions)
 
-func testAccDataSourceAviatrixVpc(name string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		_, ok := s.RootModule().Resources[name]
-		if !ok {
-			return fmt.Errorf("root module has no data source called %s", name)
-		}
+	terraform.InitAndApply(t, terraformOptions)
 
-		return nil
+	// Validate the data source
+	data := terraform.OutputMap(t, terraformOptions, "vpc")
+	if len(data) == 0 {
+		t.Fatalf("No VPC data returned")
+	}
+
+	if data["region"] != awsRegion {
+		t.Fatalf("Unexpected region. Expected %s but got %s", awsRegion, data["region"])
+	}
+
+	if data["cidr"] != "10.0.0.0/16" {
+		t.Fatalf("Unexpected CIDR. Expected 10.0.0.0/16 but got %s", data["cidr"])
 	}
 }

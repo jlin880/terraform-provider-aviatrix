@@ -1,17 +1,18 @@
-package aviatrix
+package test
 
 import (
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
 )
 
 func TestAccDataSourceAviatrixGateway_basic(t *testing.T) {
-	rName := acctest.RandString(5)
+	t.Parallel()
+
+	rName := random.UniqueId()
 	resourceName := "data.aviatrix_gateway.foo"
 
 	skipAcc := os.Getenv("SKIP_DATA_GATEWAY")
@@ -19,28 +20,67 @@ func TestAccDataSourceAviatrixGateway_basic(t *testing.T) {
 		t.Skip("Skipping Data Source Gateway test as SKIP_DATA_GATEWAY is set")
 	}
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preGatewayCheck(t, ". Set SKIP_DATA_GATEWAY to yes to skip Data Source Gateway tests")
-		},
-		Providers: testAccProviders,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccDataSourceAviatrixGatewayConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccDataSourceAviatrixGateway(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "account_name", fmt.Sprintf("tfa-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "gw_name", fmt.Sprintf("tfg-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "vpc_id", os.Getenv("AWS_VPC_ID")),
-					resource.TestCheckResourceAttr(resourceName, "vpc_reg", os.Getenv("AWS_REGION")),
-					resource.TestCheckResourceAttr(resourceName, "gw_size", "t2.micro"),
-				),
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/data-sources/gateway",
+		Vars: map[string]interface{}{
+			"test_name":     rName,
+			"aws_account":   os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access":    os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret":    os.Getenv("AWS_SECRET_KEY"),
+			"aws_vpc_id":    os.Getenv("AWS_VPC_ID"),
+			"aws_subnet":    os.Getenv("AWS_SUBNET"),
+			"aws_region":    os.Getenv("AWS_REGION"),
+			"gw_name":       fmt.Sprintf("tfg-%s", rName),
+			"account_name":  fmt.Sprintf("tfa-%s", rName),
+			"cloud_type":    "1",
+			"gw_size":       "t2.micro",
+			"gw_interface":  "0",
+			"public_ip":     "AUTO_ALLOCATE",
+			"allocate_eip":  "true",
+			"disable_srcdst": "false",
+			"tags": map[string]string{
+				"Automation": "Terraform",
 			},
 		},
-	})
+		EnvVars: map[string]string{
+			"SKIP_BACKEND": "true",
+		},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	gwName := terraform.Output(t, terraformOptions, "gw_name")
+
+	if err := terraform.OutputStruct(resourceName, &GatewayData{}); err != nil {
+		t.Fatalf("Failed to decode Terraform output: %v", err)
+	}
+
+	expected := GatewayData{
+		AccountName: "tfa-" + rName,
+		GwName:      "tfg-" + rName,
+		VpcID:       os.Getenv("AWS_VPC_ID"),
+		VpcReg:      os.Getenv("AWS_REGION"),
+		GwSize:      "t2.micro",
+	}
+
+	if gwName != expected.GwName {
+		t.Errorf("Expected gateway name %s but got %s", expected.GwName, gwName)
+	}
+
+	if err := terraform.OutputStruct(resourceName, &expected); err != nil {
+		t.Fatalf("Failed to decode Terraform output: %v", err)
+	}
 }
 
+type GatewayData struct {
+	AccountName string `json:"account_name"`
+	GwName      string `json:"gw_name"`
+	VpcID       string `json:"vpc_id"`
+	VpcReg      string `json:"vpc_reg"`
+	GwSize      string `json:"gw_size"`
+}
 func testAccDataSourceAviatrixGatewayConfigBasic(rName string) string {
 	return fmt.Sprintf(`
 resource "aviatrix_account" "test" {

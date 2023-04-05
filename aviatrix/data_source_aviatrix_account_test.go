@@ -1,40 +1,60 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
 )
 
 func TestAccDataSourceAviatrixAccount_basic(t *testing.T) {
-	rName := acctest.RandString(5)
-	resourceName := "data.aviatrix_account.foo"
-
+	// Skip the test if the SKIP_DATA_ACCOUNT environment variable is set to "yes".
 	skipAcc := os.Getenv("SKIP_DATA_ACCOUNT")
 	if skipAcc == "yes" {
 		t.Skip("Skipping Data Source Account test as SKIP_DATA_ACCOUNT is set")
 	}
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, ". Set SKIP_DATA_ACCOUNT to yes to skip Data Source Account tests")
+	// Set the AWS environment variables required for the test.
+	awsRegion := os.Getenv("AWS_REGION")
+	awsAccessKey := os.Getenv("AWS_ACCESS_KEY_ID")
+	awsSecretKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
+	awsAccountNumber := os.Getenv("AWS_ACCOUNT_NUMBER")
+
+	// Create a random name to use for the resources.
+	rName := random.UniqueId()
+
+	// Define the Terraform options for the test.
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		EnvVars: map[string]string{
+			"AWS_REGION":        awsRegion,
+			"AWS_ACCESS_KEY_ID": awsAccessKey,
+			"AWS_SECRET_ACCESS_KEY": awsSecretKey,
+			"AWS_ACCOUNT_NUMBER": awsAccountNumber,
 		},
-		Providers: testAccProviders,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccDataSourceAviatrixAccountConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccDataSourceAviatrixAccount(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "account_name", fmt.Sprintf("tf-testing-%s", rName)),
-				),
-			},
+		Vars: map[string]interface{}{
+			"account_name":       fmt.Sprintf("tf-testing-%s", rName),
+			"aws_account_number": awsAccountNumber,
+			"aws_access_key":     awsAccessKey,
+			"aws_secret_key":     awsSecretKey,
 		},
-	})
+	}
+
+	// Destroy the Terraform resources at the end of the test.
+	defer terraform.Destroy(t, terraformOptions)
+
+	// Apply the Terraform configuration.
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Check that the data source returns the expected result.
+	expectedAccountName := fmt.Sprintf("tf-testing-%s", rName)
+	dataSourceName := fmt.Sprintf("data.aviatrix_account.foo")
+	expectedAttributes := map[string]string{
+		"account_name": expectedAccountName,
+	}
+	terraform.OutputMap(t, terraformOptions, dataSourceName, expectedAttributes)
 }
 
 func testAccDataSourceAviatrixAccountConfigBasic(rName string) string {
