@@ -1,4 +1,4 @@
-package main
+package aviatrix
 
 import (
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/aviatrix"

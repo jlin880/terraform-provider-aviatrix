@@ -1,4 +1,4 @@
-package aviatrix_test
+package aviatrix
 
 import (
 	"fmt"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 )
 
 func TestAccDataSourceAviatrixAccount_basic(t *testing.T) {
@@ -29,10 +30,10 @@ func TestAccDataSourceAviatrixAccount_basic(t *testing.T) {
 	terraformOptions := &terraform.Options{
 		TerraformDir: "./",
 		EnvVars: map[string]string{
-			"AWS_REGION":        awsRegion,
-			"AWS_ACCESS_KEY_ID": awsAccessKey,
+			"AWS_REGION":            awsRegion,
+			"AWS_ACCESS_KEY_ID":     awsAccessKey,
 			"AWS_SECRET_ACCESS_KEY": awsSecretKey,
-			"AWS_ACCOUNT_NUMBER": awsAccountNumber,
+			"AWS_ACCOUNT_NUMBER":    awsAccountNumber,
 		},
 		Vars: map[string]interface{}{
 			"account_name":       fmt.Sprintf("tf-testing-%s", rName),

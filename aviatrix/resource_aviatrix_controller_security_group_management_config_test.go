@@ -1,4 +1,4 @@
-package aviatrix_test
+package aviatrix
 
 import (
 	"fmt"
@@ -66,7 +66,6 @@ func checkControllerSecurityGroupManagementConfigExists(t *testing.T, resourceNa
 	// Verify that the security group management config resource is associated with the correct controller
 	assert.Equal(t, strings.Replace(os.Getenv("AVIATRIX_CONTROLLER_IP"), ".", "-", -1), rs.Primary.ID)
 }
-
 
 func testAccCheckControllerSecurityGroupManagementConfigDestroy(s *terraform.State) error {
 	client := testAccProvider.Meta().(*goaviatrix.Client)

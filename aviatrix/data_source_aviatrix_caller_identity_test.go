@@ -1,4 +1,4 @@
-package aviatrix_test
+package aviatrix
 
 import (
 	"fmt"
@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/aviatrix"
-	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 )
 
 func TestAccDataSourceAviatrixCallerIdentity_basic(t *testing.T) {
@@ -59,7 +59,6 @@ func TestMain(m *testing.M) {
 
 	os.Exit(exitVal)
 }
-
 
 func testAccDataSourceAviatrixCallerIdentityConfigBasic(rName string) string {
 	return `

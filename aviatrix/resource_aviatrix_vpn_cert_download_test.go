@@ -1,62 +1,63 @@
-package test
+package aviatrix
 
 import (
-    "fmt"
-    "os"
-    "testing"
+	"fmt"
+	"os"
+	"testing"
 
-    "github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-    "github.com/gruntwork-io/terratest/modules/random"
-    "github.com/stretchr/testify/assert"
-    "github.com/stretchr/testify/require"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTerraformAviatrixVPNCertDownload(t *testing.T) {
-    t.Parallel()
+	t.Parallel()
 
-    skipVPNCertDownload := os.Getenv("SKIP_VPN_CERT_DOWNLOAD")
-    if skipVPNCertDownload == "true" {
-        t.Skip("Skipping test as SKIP_VPN_CERT_DOWNLOAD is set to true")
-    }
+	skipVPNCertDownload := os.Getenv("SKIP_VPN_CERT_DOWNLOAD")
+	if skipVPNCertDownload == "true" {
+		t.Skip("Skipping test as SKIP_VPN_CERT_DOWNLOAD is set to true")
+	}
 
-    resourceGroupName := fmt.Sprintf("aviatrix-vpn-cert-download-test-%s", random.UniqueId())
-    samlEndpointName := fmt.Sprintf("aviatrix-saml-endpoint-test-%s", random.UniqueId())
-    vpnUserName := fmt.Sprintf("aviatrix-vpn-user-test-%s", random.UniqueId())
+	resourceGroupName := fmt.Sprintf("aviatrix-vpn-cert-download-test-%s", random.UniqueId())
+	samlEndpointName := fmt.Sprintf("aviatrix-saml-endpoint-test-%s", random.UniqueId())
+	vpnUserName := fmt.Sprintf("aviatrix-vpn-user-test-%s", random.UniqueId())
 
-    terraformOptions := &terraform.Options{
-        TerraformDir: "./",
-        Vars: map[string]interface{}{
-            "resource_group_name": resourceGroupName,
-            "saml_endpoint_name":  samlEndpointName,
-            "vpn_user_name":       vpnUserName,
-        },
-    }
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"resource_group_name": resourceGroupName,
+			"saml_endpoint_name":  samlEndpointName,
+			"vpn_user_name":       vpnUserName,
+		},
+	}
 
-    defer terraform.Destroy(t, terraformOptions)
+	defer terraform.Destroy(t, terraformOptions)
 
-    terraform.InitAndApply(t, terraformOptions)
+	terraform.InitAndApply(t, terraformOptions)
 
-    // Check if VPN cert download resource exists
-    vpnCertDownloadResource := "aviatrix_vpn_cert_download.test_vpn_cert_download"
-    assert.True(t, terraform.OutputExists(t, terraformOptions, "aviatrix_vpn_cert_download.test_vpn_cert_download_id"))
-    assert.True(t, terraform.OutputExists(t, terraformOptions, "aviatrix_vpn_cert_download.test_vpn_cert_download_name"))
+	// Check if VPN cert download resource exists
+	vpnCertDownloadResource := "aviatrix_vpn_cert_download.test_vpn_cert_download"
+	assert.True(t, terraform.OutputExists(t, terraformOptions, "aviatrix_vpn_cert_download.test_vpn_cert_download_id"))
+	assert.True(t, terraform.OutputExists(t, terraformOptions, "aviatrix_vpn_cert_download.test_vpn_cert_download_name"))
 
-    // Check if VPN cert download resource is enabled
-    client := goaviatrix.NewClient(os.Getenv("AVIATRIX_CONTROLLER_IP"), os.Getenv("AVIATRIX_USERNAME"), os.Getenv("AVIATRIX_PASSWORD"))
-    vpnCertDownloadStatus, err := client.GetVPNCertDownloadStatus()
-    require.NoError(t, err)
-    assert.True(t, vpnCertDownloadStatus.Results.Status)
+	// Check if VPN cert download resource is enabled
+	client := goaviatrix.NewClient(os.Getenv("AVIATRIX_CONTROLLER_IP"), os.Getenv("AVIATRIX_USERNAME"), os.Getenv("AVIATRIX_PASSWORD"))
+	vpnCertDownloadStatus, err := client.GetVPNCertDownloadStatus()
+	require.NoError(t, err)
+	assert.True(t, vpnCertDownloadStatus.Results.Status)
 
-    // Check if SAML endpoint is associated with VPN cert download resource
-    vpnCertDownloadSamlEndpoints, err := client.GetVPNCertDownloadSamlEndpoints(vpnCertDownloadStatus.Results.ActionStatus, vpnCertDownloadStatus.Results.Info)
-    require.NoError(t, err)
-    assert.Equal(t, 1, len(vpnCertDownloadSamlEndpoints))
-    assert.Equal(t, samlEndpointName, vpnCertDownloadSamlEndpoints[0])
+	// Check if SAML endpoint is associated with VPN cert download resource
+	vpnCertDownloadSamlEndpoints, err := client.GetVPNCertDownloadSamlEndpoints(vpnCertDownloadStatus.Results.ActionStatus, vpnCertDownloadStatus.Results.Info)
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(vpnCertDownloadSamlEndpoints))
+	assert.Equal(t, samlEndpointName, vpnCertDownloadSamlEndpoints[0])
 
-    // Check if VPN user is associated with SAML endpoint
-    samlUser, err := client.GetSamlUser(samlEndpointName, vpnUserName)
-    require.NoError(t, err)
-    assert.NotNil(t, samlUser)
+	// Check if VPN user is associated with SAML endpoint
+	samlUser, err := client.GetSamlUser(samlEndpointName, vpnUserName)
+	require.NoError(t, err)
+	assert.NotNil(t, samlUser)
 }
 
 func testAccVPNCertDownloadConfigBasic(rName string) string {

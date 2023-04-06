@@ -1,5 +1,4 @@
-Copy code
-package aviatrix_test
+package aviatrix
 
 import (
 	"context"

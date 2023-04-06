@@ -1,4 +1,4 @@
-package aviatrix_test
+package aviatrix
 
 import (
 	"fmt"
@@ -85,27 +85,27 @@ func TestTerraformDataSourceAviatrixFirewall_basic(t *testing.T) {
 	terraformOptions := &terraform.Options{
 		TerraformDir: "./",
 		Vars: map[string]interface{}{
-			"account_name":            fmt.Sprintf("tfa-%s", rName),
-			"aws_account_number":      os.Getenv("AWS_ACCOUNT_NUMBER"),
-			"aws_access_key":          os.Getenv("AWS_ACCESS_KEY"),
-			"aws_secret_key":          os.Getenv("AWS_SECRET_KEY"),
-			"region":                  os.Getenv("AWS_REGION"),
-			"cidr":                    "10.0.0.0/16",
-			"gw_name":                 fmt.Sprintf("test-gw-%s", rName),
-			"base_policy":             "allow-all",
-			"base_log_enabled":        true,
-			"src_ip_1":                "10.15.0.224/32",
-			"log_enabled_1":           false,
-			"dst_ip_1":                "10.12.0.172/32",
-			"action_1":                "allow",
-			"port_1":                  "0:65535",
-			"description_1":           "This is policy no.1",
-			"src_ip_2":                "10.15.1.224/32",
-			"log_enabled_2":           true,
-			"dst_ip_2":                "10.12.1.172/32",
-			"action_2":                "deny",
-			"port_2":                  "0:65535",
-			"description_2":           "This is policy no.2",
+			"account_name":       fmt.Sprintf("tfa-%s", rName),
+			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
+			"region":             os.Getenv("AWS_REGION"),
+			"cidr":               "10.0.0.0/16",
+			"gw_name":            fmt.Sprintf("test-gw-%s", rName),
+			"base_policy":        "allow-all",
+			"base_log_enabled":   true,
+			"src_ip_1":           "10.15.0.224/32",
+			"log_enabled_1":      false,
+			"dst_ip_1":           "10.12.0.172/32",
+			"action_1":           "allow",
+			"port_1":             "0:65535",
+			"description_1":      "This is policy no.1",
+			"src_ip_2":           "10.15.1.224/32",
+			"log_enabled_2":      true,
+			"dst_ip_2":           "10.12.1.172/32",
+			"action_2":           "deny",
+			"port_2":             "0:65535",
+			"description_2":      "This is policy no.2",
 		},
 	}
 

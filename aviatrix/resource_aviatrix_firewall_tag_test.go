@@ -1,4 +1,4 @@
-package test
+package aviatrix
 
 import (
 	"fmt"
@@ -6,9 +6,10 @@ import (
 
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/stretchr/testify/assert"
 
-	goaviatrix "github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
+	goaviatrix "github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 )
 
 func TestAccAviatrixFirewallTag_basic(t *testing.T) {
@@ -44,7 +45,6 @@ func TestAccAviatrixFirewallTag_basic(t *testing.T) {
 	assert.Equal(t, "10.2.0.0/24", firewallTag.CIDRList[1].CIDR)
 	assert.Equal(t, "b1", firewallTag.CIDRList[1].CIDRTagName)
 }
-
 
 func testAccFirewallTagConfigBasic(rInt int) string {
 	return fmt.Sprintf(`

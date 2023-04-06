@@ -1,11 +1,12 @@
-package aviatrix_test
+package aviatrix
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
-	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/stretchr/testify/assert"
 )
 

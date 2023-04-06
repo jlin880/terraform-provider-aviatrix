@@ -1,4 +1,4 @@
-package aviatrix_test
+package aviatrix
 
 import (
 	"fmt"
@@ -50,8 +50,8 @@ func testAccDataSourceAviatrixFireNetFirewallManagerConfigBasic(rName string) *t
 			"vendor_type":          "Generic",
 		},
 		EnvVars: map[string]string{
-			"AVIATRIX_API_USER":         os.Getenv("AVIATRIX_API_USER"),
-			"AVIATRIX_API_PASSWORD":     os.Getenv("AVIATRIX_API_PASSWORD"),
+			"AVIATRIX_API_USER":        os.Getenv("AVIATRIX_API_USER"),
+			"AVIATRIX_API_PASSWORD":    os.Getenv("AVIATRIX_API_PASSWORD"),
 			"AVIATRIX_CONTROLLER_IP_1": os.Getenv("AVIATRIX_CONTROLLER_IP_1"),
 		},
 	})

@@ -1,4 +1,4 @@
-package aviatrix_test
+package aviatrix
 
 import (
 	"fmt"
@@ -8,6 +8,8 @@ import (
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -31,19 +33,19 @@ func TestAviatrixTransPeer(t *testing.T) {
 	terraformOptions := &terraform.Options{
 		TerraformDir: "../path/to/terraform/dir",
 		Vars: map[string]interface{}{
-			"account_name":         aviatrixAccountName,
-			"region1":              awsRegion1,
-			"region2":              awsRegion2,
-			"vpc_id1":              awsVpcID1,
-			"vpc_id2":              awsVpcID2,
-			"subnet1":              awsSubnetID1,
-			"subnet2":              awsSubnetID2,
-			"access_account_key":   awsAccessKey,
-			"secret_account_key":   awsSecretKey,
-			"aws_account_number":   awsAccountNumber,
-			"source":               sourceGatewayName,
-			"nexthop":              nextHopGatewayName,
-			"reachable_cidr":       reachableCIDR,
+			"account_name":       aviatrixAccountName,
+			"region1":            awsRegion1,
+			"region2":            awsRegion2,
+			"vpc_id1":            awsVpcID1,
+			"vpc_id2":            awsVpcID2,
+			"subnet1":            awsSubnetID1,
+			"subnet2":            awsSubnetID2,
+			"access_account_key": awsAccessKey,
+			"secret_account_key": awsSecretKey,
+			"aws_account_number": awsAccountNumber,
+			"source":             sourceGatewayName,
+			"nexthop":            nextHopGatewayName,
+			"reachable_cidr":     reachableCIDR,
 		},
 	}
 
@@ -65,7 +67,6 @@ func TestAviatrixTransPeer(t *testing.T) {
 	assert.Equal(t, transPeer.Nexthop, foundTransPeer.Nexthop)
 	assert.Equal(t, transPeer.ReachableCidr, foundTransPeer.ReachableCidr)
 }
-
 
 func preTransPeerCheck(t *testing.T, msgCommon string) {
 	preAvxTunnelCheck(t, msgCommon)

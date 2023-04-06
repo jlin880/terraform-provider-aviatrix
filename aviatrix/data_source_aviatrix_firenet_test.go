@@ -1,4 +1,4 @@
-package aviatrix_test
+package aviatrix
 
 import (
 	"fmt"
@@ -38,11 +38,11 @@ func TestAccDataSourceAviatrixFireNet_basic(t *testing.T) {
 	// Check that the data source is accessible and has the expected values
 	data := terraform.OutputAll(t, terraformOptions, "aviatrix_firenet_foo")
 	expectedFireNetAttributes := map[string]string{
-		"vpc_id":                     fmt.Sprintf("vpc-for-firenet-%s", rName),
-		"inspection_enabled":         "true",
-		"egress_enabled":             "false",
-		"firewall_instance_association.#": "1",
-		"firewall_instance_association.0.attached": "true",
+		"vpc_id":                                          fmt.Sprintf("vpc-for-firenet-%s", rName),
+		"inspection_enabled":                              "true",
+		"egress_enabled":                                  "false",
+		"firewall_instance_association.#":                 "1",
+		"firewall_instance_association.0.attached":        "true",
 		"firewall_instance_association.0.firenet_gw_name": fmt.Sprintf("tftg-%s", rName),
 		"firewall_instance_association.0.firewall_name":   fmt.Sprintf("tffw-%s", rName),
 	}
@@ -64,7 +64,6 @@ func TestAccDataSourceAviatrixFireNet_basic(t *testing.T) {
 		}
 	}
 }
-
 
 func testAccDataSourceFireNetConfigBasic(rName string) string {
 	return fmt.Sprintf(`
@@ -133,8 +132,6 @@ data "aviatrix_firenet" "foo" {
 	`, rName, os.Getenv("AWS_ACCOUNT_NUMBER"), os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"),
 		os.Getenv("AWS_REGION"), rName, rName)
 }
-
-
 
 func TestAccDataSourceAviatrixFireNet(t *testing.T) {
 	t.Parallel()

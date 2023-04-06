@@ -7,9 +7,10 @@ import (
 
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 )
 
 func TestAccAviatrixDeviceInterfaceConfig_basic(t *testing.T) {
@@ -23,7 +24,7 @@ func TestAccAviatrixDeviceInterfaceConfig_basic(t *testing.T) {
 	terraformOptions := &terraform.Options{
 		TerraformDir: "./fixtures/device_interface_config",
 		Vars: map[string]interface{}{
-			"device_name": deviceName,
+			"device_name":   deviceName,
 			"resource_name": fmt.Sprintf("test_device_interface_config_%s", uniqueID),
 		},
 	}
@@ -68,7 +69,6 @@ func skipIfEnvSet(t *testing.T, envVar string) {
 		t.Skip(fmt.Sprintf("Skipping test as %s is set", envVar))
 	}
 }
-
 
 func testAccDeviceInterfaceConfigBasic() string {
 	return fmt.Sprintf(`

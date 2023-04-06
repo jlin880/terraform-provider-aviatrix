@@ -1,4 +1,4 @@
-package test
+package aviatrix
 
 import (
 	"fmt"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 )
 
 func TestAccDataSourceAviatrixGateway_basic(t *testing.T) {
@@ -23,20 +24,20 @@ func TestAccDataSourceAviatrixGateway_basic(t *testing.T) {
 	terraformOptions := &terraform.Options{
 		TerraformDir: "../examples/data-sources/gateway",
 		Vars: map[string]interface{}{
-			"test_name":     rName,
-			"aws_account":   os.Getenv("AWS_ACCOUNT_NUMBER"),
-			"aws_access":    os.Getenv("AWS_ACCESS_KEY"),
-			"aws_secret":    os.Getenv("AWS_SECRET_KEY"),
-			"aws_vpc_id":    os.Getenv("AWS_VPC_ID"),
-			"aws_subnet":    os.Getenv("AWS_SUBNET"),
-			"aws_region":    os.Getenv("AWS_REGION"),
-			"gw_name":       fmt.Sprintf("tfg-%s", rName),
-			"account_name":  fmt.Sprintf("tfa-%s", rName),
-			"cloud_type":    "1",
-			"gw_size":       "t2.micro",
-			"gw_interface":  "0",
-			"public_ip":     "AUTO_ALLOCATE",
-			"allocate_eip":  "true",
+			"test_name":      rName,
+			"aws_account":    os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access":     os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret":     os.Getenv("AWS_SECRET_KEY"),
+			"aws_vpc_id":     os.Getenv("AWS_VPC_ID"),
+			"aws_subnet":     os.Getenv("AWS_SUBNET"),
+			"aws_region":     os.Getenv("AWS_REGION"),
+			"gw_name":        fmt.Sprintf("tfg-%s", rName),
+			"account_name":   fmt.Sprintf("tfa-%s", rName),
+			"cloud_type":     "1",
+			"gw_size":        "t2.micro",
+			"gw_interface":   "0",
+			"public_ip":      "AUTO_ALLOCATE",
+			"allocate_eip":   "true",
 			"disable_srcdst": "false",
 			"tags": map[string]string{
 				"Automation": "Terraform",
@@ -81,6 +82,7 @@ type GatewayData struct {
 	VpcReg      string `json:"vpc_reg"`
 	GwSize      string `json:"gw_size"`
 }
+
 func testAccDataSourceAviatrixGatewayConfigBasic(rName string) string {
 	return fmt.Sprintf(`
 resource "aviatrix_account" "test" {

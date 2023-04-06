@@ -1,10 +1,10 @@
-package test
+package aviatrix
 
 import (
 	"fmt"
 	"testing"
 
-	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 	"github.com/gruntwork-io/terratest/modules/terraform"
 )
 
