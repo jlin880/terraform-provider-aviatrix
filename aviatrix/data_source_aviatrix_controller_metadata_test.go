@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/gruntwork-io/terratest/modules/terraform"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -39,7 +38,10 @@ func TestAccDataSourceAviatrixControllerMetadata_basic(t *testing.T) {
 
 	fmt.Println("Controller Metadata:\n", data)
 }
-func TestAccDataSourceAviatrixControllerMetadata_basic(t *testing.T) {
+
+func TestAccDataSourceAviatrixControllerMetadata(t *testing.T) {
+	t.Parallel()
+
 	resourceName := "data.aviatrix_controller_metadata.foo"
 
 	skipAcc := os.Getenv("SKIP_DATA_CONTROLLER_METADATA")
@@ -47,24 +49,23 @@ func TestAccDataSourceAviatrixControllerMetadata_basic(t *testing.T) {
 		t.Skip("Skipping Data Source Controller Metadata test as SKIP_DATA_CONTROLLER_METADATA is set")
 	}
 
-	testAccProvider := aviatrixProvider()
-	testAccProviders := map[string]terraform.ResourceProvider{
-		"aviatrix": testAccProvider,
-	}
-
-	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+	terraformOptions := &terraform.Options{
 		TerraformDir: ".",
 		EnvVars: map[string]string{
 			"SKIP_DATA_CONTROLLER_METADATA": skipAcc,
 		},
-		Providers: testAccProviders,
-	})
+	}
 
 	defer terraform.Destroy(t, terraformOptions)
 
 	terraform.InitAndApply(t, terraformOptions)
 
-	err := testAccDataSourceAviatrixControllerMetadata(resourceName)(terraformOptions.State)
+	err := terraform.Provider("aviatrix").GetProvider().(*schema.Provider).InternalValidate()
+	if err != nil {
+		t.Fatalf("failed to validate provider: %s", err)
+	}
+
+	err = testAccDataSourceAviatrixControllerMetadata(resourceName)(terraformOptions.State)
 	if err != nil {
 		t.Fatalf("failed to verify data source: %s", err)
 	}
@@ -72,9 +73,13 @@ func TestAccDataSourceAviatrixControllerMetadata_basic(t *testing.T) {
 
 func testAccDataSourceAviatrixControllerMetadata(name string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
-		_, ok := s.RootModule().Resources[name]
+		rs, ok := s.RootModule().Resources[name]
 		if !ok {
 			return fmt.Errorf("root module has no data source called %s", name)
+		}
+
+		if _, ok := rs.Primary.Attributes["metadata"]; !ok {
+			return fmt.Errorf("metadata attribute not set")
 		}
 
 		return nil

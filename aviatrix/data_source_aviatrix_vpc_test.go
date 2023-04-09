@@ -7,6 +7,7 @@ import (
 
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccDataSourceAviatrixVpc_basic(t *testing.T) {
@@ -36,16 +37,21 @@ func TestAccDataSourceAviatrixVpc_basic(t *testing.T) {
 	terraform.InitAndApply(t, terraformOptions)
 
 	// Validate the data source
+	resourceName := "data.aviatrix_vpc.vpc"
+	expectedRegion := awsRegion
+	expectedCIDR := "10.0.0.0/16"
+
 	data := terraform.OutputMap(t, terraformOptions, "vpc")
 	if len(data) == 0 {
 		t.Fatalf("No VPC data returned")
 	}
 
-	if data["region"] != awsRegion {
-		t.Fatalf("Unexpected region. Expected %s but got %s", awsRegion, data["region"])
-	}
+	assert.Equal(t, expectedRegion, data["region"], "Unexpected region.")
+	assert.Equal(t, expectedCIDR, data["cidr"], "Unexpected CIDR.")
 
-	if data["cidr"] != "10.0.0.0/16" {
-		t.Fatalf("Unexpected CIDR. Expected 10.0.0.0/16 but got %s", data["cidr"])
+	// Check if the resource exists
+	res := terraform.GetStateResource(t, terraformOptions, resourceName)
+	if res == nil {
+		t.Fatalf("resource '%s' does not exist", resourceName)
 	}
 }

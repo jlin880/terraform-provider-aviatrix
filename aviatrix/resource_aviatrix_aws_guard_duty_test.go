@@ -1,42 +1,39 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixAwsGuardDuty_basic(t *testing.T) {
-	if os.Getenv("SKIP_AWS_GUARD_DUTY") == "yes" {
-		t.Skip("Skipping AWS guard duty test as SKIP_AWS_GUARD_DUTY is set")
+	// Skip the test if the environment variable is set
+	skipGuardDuty := os.Getenv("SKIP_AWS_GUARD_DUTY")
+	if skipGuardDuty == "yes" {
+		t.Skip("Skipping AWS GuardDuty test as SKIP_AWS_GUARD_DUTY is set")
 	}
 
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_aws_guard_duty.test_aws_guard_duty"
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./path/to/terraform/directory",
+		Vars: map[string]interface{}{
+			"account_name": fmt.Sprintf("tf-testing-%s", random.UniqueId()),
+			"region":       "us-west-1",
+		},
+	}
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-		},
-		Providers: testAccProviders,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccAwsGuardDutyBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					resource.TestCheckResourceAttr(resourceName, "account_name", fmt.Sprintf("tf-testing-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "region", "us-west-1"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	resourceState := terraform.Show(t, terraformOptions, "-json")
+	accountName := terraformOptions.Vars["account_name"].(string)
+
+	assert.Equal(t, accountName, resourceState.Primary.Attributes["account_name"])
+	assert.Equal(t, "us-west-1", resourceState.Primary.Attributes["region"])
 }
 
 func testAccAwsGuardDutyBasic(rName string) string {

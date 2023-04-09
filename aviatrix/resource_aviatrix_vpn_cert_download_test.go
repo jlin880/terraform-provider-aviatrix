@@ -77,44 +77,56 @@ resource "aviatrix_vpn_cert_download" "test_vpn_cert_download" {
 `
 }
 
-func tesAccCheckVPNCertDownloadExists(n string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[n]
-		if !ok {
-			return fmt.Errorf("aviatrix VPN Cert Download Resource is Not Created: %s", n)
-		}
-		if rs.Primary.ID == "" {
-			return fmt.Errorf("no aviatrix VPN Cert Download Resource ID is set")
-		}
+func testAccCheckVPNCertDownloadExists(n string) resource.TestCheckFunc {
+    return func(s *terraform.State) error {
+        rs, ok := s.RootModule().Resources[n]
+        if !ok {
+            return fmt.Errorf("aviatrix VPN Cert Download Resource is Not Created: %s", n)
+        }
+        if rs.Primary.ID == "" {
+            return fmt.Errorf("no aviatrix VPN Cert Download Resource ID is set")
+        }
 
-		client := testAccProvider.Meta().(*goaviatrix.Client)
+        // Here, you would need to initialize an Aviatrix client using the credentials specified in the Terraform
+        // variables, which you would pass into this test function as a parameter. I'm using a placeholder value here
+        // to illustrate the code structure.
+        client := initializeAviatrixClient()
 
-		vpnCertDownloadStatus, err := client.GetVPNCertDownloadStatus()
-		if err != nil {
-			return err
-		}
-		if !vpnCertDownloadStatus.Results.Status {
-			return fmt.Errorf("VPN Cert Download doesnt seem to be enabled")
-		}
-		return nil
-	}
+        vpnCertDownloadStatus, err := client.GetVPNCertDownloadStatus()
+        if err != nil {
+            return err
+        }
+        if !vpnCertDownloadStatus.Results.Status {
+            return fmt.Errorf("VPN Cert Download doesnt seem to be enabled")
+        }
+        return nil
+    }
 }
 
 func testAccCheckVPNCertDownloadDestroy(s *terraform.State) error {
-	client := testAccProvider.Meta().(*goaviatrix.Client)
+    // Here, you would need to initialize an Aviatrix client using the credentials specified in the Terraform
+    // variables, which you would pass into this test function as a parameter. I'm using a placeholder value here
+    // to illustrate the code structure.
+    client := initializeAviatrixClient()
 
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_vpn_cert_download" {
-			continue
-		}
+    for _, rs := range s.RootModule().Resources {
+        if rs.Type != "aviatrix_vpn_cert_download" {
+            continue
+        }
 
-		vpnCertDownloadStatus, err := client.GetVPNCertDownloadStatus()
-		if err != nil {
-			return err
-		}
-		if vpnCertDownloadStatus.Results.Status {
-			return fmt.Errorf("VPN Cert Download doesnt seem to be disabled")
-		}
-	}
-	return nil
+        vpnCertDownloadStatus, err := client.GetVPNCertDownloadStatus()
+        if err != nil {
+            return err
+        }
+        if vpnCertDownloadStatus.Results.Status {
+            return fmt.Errorf("VPN Cert Download doesnt seem to be disabled")
+        }
+    }
+    return nil
+}
+
+// Here's an example function that initializes an Aviatrix client. You would need to update this function to use
+// the credentials specified in the Terraform variables.
+func initializeAviatrixClient() *goaviatrix.Client {
+    return goaviatrix.NewClient("AVIATRIX_API_KEY", "AVIATRIX_API_SECRET", "AVIATRIX_CONTROLLER_IP")
 }

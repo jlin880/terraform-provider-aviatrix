@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixSpokeHaGateway_basic(t *testing.T) {
@@ -22,7 +22,7 @@ func TestAccAviatrixSpokeHaGateway_basic(t *testing.T) {
 		t.Skip("Skipping Spoke HA Gateway test as SKIP_SPOKE_HA_GATEWAY is set")
 	}
 
-	//Setting default values for AWS_GW_SIZE and GCP_GW_SIZE
+	// Setting default values for AWS_GW_SIZE and GCP_GW_SIZE
 	awsGwSize := os.Getenv("AWS_GW_SIZE")
 	if awsGwSize == "" {
 		awsGwSize = "t2.micro"
@@ -31,24 +31,38 @@ func TestAccAviatrixSpokeHaGateway_basic(t *testing.T) {
 	if skipGw == "yes" {
 		t.Log("Skipping AWS Spoke HA Gateway test as SKIP_SPOKE_HA_GATEWAY_AWS is set")
 	} else {
-		resource.Test(t, resource.TestCase{
-			PreCheck: func() {
-				testAccPreCheck(t)
+		terraformOptions := &terraform.Options{
+			TerraformDir: "../examples/spoke_ha_gateway/aws",
+			Vars: map[string]interface{}{
+				"account_name":        fmt.Sprintf("tfa-aws-%s", rName),
+				"aws_account_number":  os.Getenv("AWS_ACCOUNT_NUMBER"),
+				"aws_access_key":      os.Getenv("AWS_ACCESS_KEY"),
+				"aws_secret_key":      os.Getenv("AWS_SECRET_KEY"),
+				"region":              os.Getenv("AWS_REGION"),
+				"aws_gw_size":         awsGwSize,
+				"aws_spoke_cidr":      os.Getenv("AWS_SUBNET"),
+				"aws_spoke_ha_subnet": os.Getenv("AWS_SPK_HA_SUBNET"),
 			},
-			Providers:    testAccProviders,
-			CheckDestroy: testAccCheckSpokeHaGatewayDestroy,
-			Steps: []resource.TestStep{
-				{
-					Config: testAccSpokeHaGatewayConfigAWS(rName),
-					Check: resource.ComposeTestCheckFunc(
-						testAccCheckSpokeHaGatewayExists(resourceName, &gateway),
-						resource.TestCheckResourceAttr(resourceName, "gw_name", fmt.Sprintf("tfg-aws-%s-hagw", rName)),
-						resource.TestCheckResourceAttr(resourceName, "gw_size", awsGwSize),
-						resource.TestCheckResourceAttr(resourceName, "account_name", fmt.Sprintf("tfa-aws-%s", rName)),
-					),
-				},
-			},
-		})
+		}
+
+		defer terraform.Destroy(t, terraformOptions)
+
+		terraform.InitAndApply(t, terraformOptions)
+
+		gwName := fmt.Sprintf("tfg-aws-%s-hagw", rName)
+
+		gateway = goaviatrix.Gateway{
+			GwName:      gwName,
+			AccountName: fmt.Sprintf("tfa-aws-%s", rName),
+		}
+
+		err := aviatrixClient.GetGateway(&gateway)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Equal(t, gwName, gateway.GwName)
+		assert.Equal(t, fmt.Sprintf("tfa-aws-%s", rName), gateway.AccountName)
 	}
 }
 

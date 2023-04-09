@@ -1,56 +1,70 @@
-package aviatrix
+package test
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/aviatrix"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
 )
 
 func TestAccAviatrixTransitExternalDeviceConn_basic(t *testing.T) {
-	var externalDeviceConn goaviatrix.ExternalDeviceConn
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
+			"aws_region":         os.Getenv("AWS_REGION"),
+			"aws_vpc_id":         os.Getenv("AWS_VPC_ID"),
+			"aws_subnet":         os.Getenv("AWS_SUBNET"),
+		},
+	}
 
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_transit_external_device_conn.test"
-
+	// Skip the test if the SKIP_TRANSIT_EXTERNAL_DEVICE_CONN environment variable is set
 	skipAcc := os.Getenv("SKIP_TRANSIT_EXTERNAL_DEVICE_CONN")
 	if skipAcc == "yes" {
 		t.Skip("Skipping transit external device connection tests as 'SKIP_TRANSIT_EXTERNAL_DEVICE_CONN' is set")
 	}
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preGatewayCheck(t, ". Set 'SKIP_TRANSIT_EXTERNAL_DEVICE_CONN' to 'yes' to skip Site2Cloud transit external device connection tests")
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckTransitExternalDeviceConnDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccTransitExternalDeviceConnConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckTransitExternalDeviceConnExists(resourceName, &externalDeviceConn),
-					resource.TestCheckResourceAttr(resourceName, "vpc_id", os.Getenv("AWS_VPC_ID")),
-					resource.TestCheckResourceAttr(resourceName, "connection_name", rName),
-					resource.TestCheckResourceAttr(resourceName, "gw_name", fmt.Sprintf("tfg-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "connection_type", "bgp"),
-					resource.TestCheckResourceAttr(resourceName, "bgp_local_as_num", "123"),
-					resource.TestCheckResourceAttr(resourceName, "bgp_remote_as_num", "345"),
-					resource.TestCheckResourceAttr(resourceName, "remote_gateway_ip", "172.12.13.14"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Get the name of the created resource from the Terraform state
+	resourceName := terraform.Output(t, terraformOptions, "resource_name")
+
+	// Get the connection details from the Aviatrix API
+	client := aviatrix.NewClient(os.Getenv("AVIATRIX_USERNAME"), os.Getenv("AVIATRIX_PASSWORD"), os.Getenv("AVIATRIX_CONTROLLER"))
+	externalDeviceConn, err := client.GetExternalDeviceConnDetail(resourceName)
+	require.NoError(t, err)
+
+	// Verify that the connection details match the expected values
+	assert.Equal(t, os.Getenv("AWS_VPC_ID"), externalDeviceConn.VpcID)
+	assert.Equal(t, fmt.Sprintf("tfg-%s", resourceName), externalDeviceConn.GWName)
+	assert.Equal(t, "bgp", externalDeviceConn.ConnectionType)
+	assert.Equal(t, "123", externalDeviceConn.BGPLocalASNum)
+	assert.Equal(t, "345", externalDeviceConn.BGPRemoteASNum)
+	assert.Equal(t, "172.12.13.14", externalDeviceConn.RemoteGatewayIP)
+
+	// Import the resource and verify that the connection details match the expected values
+	importedResource, err := terraform.ImportE(t, terraformOptions, "aviatrix_transit_external_device_conn", resourceName)
+	require.NoError(t, err)
+
+	assert.Equal(t, resourceName, importedResource.Id())
+	assert.Equal(t, os.Getenv("AWS_VPC_ID"), importedResource.Get("vpc_id").(string))
+	assert.Equal(t, fmt.Sprintf("tfg-%s", resourceName), importedResource.Get("gw_name").(string))
+	assert.Equal(t, "bgp", importedResource.Get("connection_type").(string))
+	assert.Equal(t, "123", importedResource.Get("bgp_local_as_num").(string))
+	assert.Equal(t, "345", importedResource.Get("bgp_remote_as_num").(string))
+	assert.Equal(t, "172.12.13.14", importedResource.Get("remote_gateway_ip").(string))
 }
+
+
 
 func testAccTransitExternalDeviceConnConfigBasic(rName string) string {
 	return fmt.Sprintf(`
@@ -84,33 +98,22 @@ resource "aviatrix_transit_external_device_conn" "test" {
 		rName, os.Getenv("AWS_VPC_ID"), os.Getenv("AWS_REGION"), os.Getenv("AWS_SUBNET"), rName)
 }
 
-func testAccCheckTransitExternalDeviceConnExists(n string, externalDeviceConn *goaviatrix.ExternalDeviceConn) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[n]
-		if !ok {
-			return fmt.Errorf("transit external device connection Not found: %s", n)
-		}
-		if rs.Primary.ID == "" {
-			return fmt.Errorf("no transit external device connection ID is set")
-		}
+func checkTransitExternalDeviceConnExists(t *testing.T, resourceName string, externalDeviceConn *goaviatrix.ExternalDeviceConn) error {
+	client := getAviatrixClient(t)
 
-		client := testAccProvider.Meta().(*goaviatrix.Client)
-
-		foundExternalDeviceConn := &goaviatrix.ExternalDeviceConn{
-			VpcID:          rs.Primary.Attributes["vpc_id"],
-			ConnectionName: rs.Primary.Attributes["connection_name"],
-		}
-		foundExternalDeviceConn2, err := client.GetExternalDeviceConnDetail(foundExternalDeviceConn)
-		if err != nil {
-			return err
-		}
-		if foundExternalDeviceConn2.ConnectionName+"~"+foundExternalDeviceConn2.VpcID != rs.Primary.ID {
-			return fmt.Errorf("transit external device connection not found")
-		}
-
-		*externalDeviceConn = *foundExternalDeviceConn2
-		return nil
+	output, err := client.GetTransitExternalDeviceConnList()
+	if err != nil {
+		return err
 	}
+
+	for _, conn := range output {
+		if conn.ConnectionName == externalDeviceConn.ConnectionName && conn.VpcID == externalDeviceConn.VpcID {
+			*externalDeviceConn = conn
+			return nil
+		}
+	}
+
+	return fmt.Errorf("transit external device connection %s not found", resourceName)
 }
 
 func testAccCheckTransitExternalDeviceConnDestroy(s *terraform.State) error {

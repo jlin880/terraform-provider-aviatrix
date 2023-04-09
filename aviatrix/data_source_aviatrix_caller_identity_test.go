@@ -1,90 +1,79 @@
-package aviatrix
+package aviatrix_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
+	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 )
 
 func TestAccDataSourceAviatrixCallerIdentity_basic(t *testing.T) {
 	t.Parallel()
 
-	testCid := os.Getenv("AVIATRIX_CID")
-	skipIdentity := os.Getenv("SKIP_DATA_CALLER_IDENTITY")
-	if skipIdentity == "true" {
+	rName := random.UniqueId()
+	resourceName := "data.aviatrix_caller_identity.foo"
+
+	skipAcc := os.Getenv("SKIP_DATA_CALLER_IDENTITY")
+	if skipAcc == "yes" {
 		t.Skip("Skipping Data Source Caller Identity test as SKIP_DATA_CALLER_IDENTITY is set")
 	}
 
-	terraformOptions := &terraform.Options{
-		TerraformDir: "./",
-		Vars: map[string]interface{}{
-			"cid": testCid,
-		},
+	terraformOptions, err := configureTerraformOptions(rName)
+	if err != nil {
+		t.Fatal(err)
 	}
-
 	defer terraform.Destroy(t, terraformOptions)
 
 	terraform.InitAndApply(t, terraformOptions)
 
-	output := terraform.Output(t, terraformOptions, "version")
-	if !strings.Contains(output, ".") {
-		t.Fatalf("Expected version to contain '.' but got %s", output)
+	resourceState := terraform.OutputAll(t, terraformOptions, resourceName)
+
+	client := aviatrixClientFromResourceState(t, resourceState)
+
+	version, _, err := client.GetCurrentVersion()
+	if err != nil {
+		t.Fatalf("valid CID was not returned. Get version API gave the following Error: %v", err)
+	}
+	if !strings.Contains(version, ".") {
+		t.Fatalf("valid CID was not returned. Get version API gave the wrong version")
 	}
 }
 
-func TestMain(m *testing.M) {
-	testCid := os.Getenv("AVIATRIX_CID")
-	if testCid == "" {
-		fmt.Println("Missing environment variable AVIATRIX_CID")
-		os.Exit(1)
-	}
+func configureTerraformOptions(rName string) (*terraform.Options, error) {
+	awsRegion := os.Getenv("AWS_REGION")
+	awsAccountNumber := os.Getenv("AWS_ACCOUNT_NUMBER")
+	awsAccessKey := os.Getenv("AWS_ACCESS_KEY")
+	awsSecretKey := os.Getenv("AWS_SECRET_KEY")
 
 	terraformOptions := &terraform.Options{
-		TerraformDir: "./",
+		TerraformDir: "../examples/",
 		Vars: map[string]interface{}{
-			"cid": testCid,
+			"aws_region":         awsRegion,
+			"aws_account_number": awsAccountNumber,
+			"aws_access_key":     awsAccessKey,
+			"aws_secret_key":     awsSecretKey,
 		},
 	}
 
-	terraform.InitAndApply(m, terraformOptions)
-
-	exitVal := m.Run()
-
-	defer terraform.Destroy(m, terraformOptions)
-
-	os.Exit(exitVal)
+	return terraformOptions, nil
 }
 
-func testAccDataSourceAviatrixCallerIdentityConfigBasic(rName string) string {
-	return `
-data "aviatrix_caller_identity" "foo" {
-}
-	`
-}
-
-func testAccDataSourceAviatrixCallerIdentity(name string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[name]
-		if !ok {
-			return fmt.Errorf("root module has no data source called %s", name)
-		}
-
-		client := testAccProvider.Meta().(*goaviatrix.Client)
-		client.CID = rs.Primary.Attributes["cid"]
-
-		version, _, err := client.GetCurrentVersion()
-		if err != nil {
-			return fmt.Errorf("valid CID was not returned. Get version API gave the following Error: %v", err)
-		}
-		if !strings.Contains(version, ".") {
-			return fmt.Errorf("valid CID was not returned. Get version API gave the wrong version")
-		}
-
-		return nil
+func aviatrixClientFromResourceState(t *testing.T, resourceState map[string]interface{}) *goaviatrix.Client {
+	cid, ok := resourceState["cid"].(string)
+	if !ok {
+		t.Fatalf("Expected to get CID from resource state but did not get it: %v", resourceState)
 	}
+
+	client := goaviatrix.NewClient(cid, "")
+	err := client.Login()
+	if err != nil {
+		t.Fatalf("Failed to authenticate to Aviatrix Controller: %v", err)
+	}
+
+	return client
 }

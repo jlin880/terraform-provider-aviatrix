@@ -1,47 +1,69 @@
-package aviatrix
+package test
 
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/avianto/go-metro"
+	"github.com/avianto/go-metro/execution"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixAwsTgwNetworkDomain_basic(t *testing.T) {
-	rName := acctest.RandString(5)
-	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	tgwName := acctest.RandStringFromCharSet(5, charset) + acctest.RandString(5)
+	rName := strings.ToLower(metro.RandomString(5))
+	tgwName := strings.ToLower(metro.RandomString(5))
 	awsSideAsNumber := "64512"
-	ndName := acctest.RandStringFromCharSet(5, charset) + acctest.RandString(5)
-	resourceName := "aviatrix_aws_tgw_network_domain.test"
+	ndName := strings.ToLower(metro.RandomString(5))
+	resourceName := fmt.Sprintf("aviatrix_aws_tgw_network_domain.%s", ndName)
 
-	skipAcc := os.Getenv("SKIP_AWS_TGW_NETWORK_DOMAIN")
-	if skipAcc == "yes" {
-		t.Skip("Skipping AWS TGW NETWORK DOMAIN test as SKIP_AWS_TGW_NETWORK_DOMAIN is set")
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/aws-tgw-network-domain",
+		Vars: map[string]interface{}{
+			"prefix":            rName,
+			"tgw_name":          tgwName,
+			"aws_side_as_number": awsSideAsNumber,
+			"nd_name":           ndName,
+			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
+		},
 	}
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Check if the network domain exists
+	client := getAviatrixClient(t)
+	timeout := 5 * time.Minute
+	interval := 2 * time.Second
+
+	err := metro.Retry(
+		func() error {
+			nd := getSecurityDomain(t, client, tgwName, ndName)
+			if nd == nil {
+				return fmt.Errorf("network domain %s not found", ndName)
+			}
+
+			return nil
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckAwsTgwNetworkDomainDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccAwsTgwNetworkDomainBasic(rName, tgwName, awsSideAsNumber, ndName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckAwsTgwNetworkDomainExists(resourceName, tgwName, ndName),
-					resource.TestCheckResourceAttr(resourceName, "tgw_name", tgwName),
-					resource.TestCheckResourceAttr(resourceName, "name", ndName),
-				),
-			},
-		},
-	})
+		timeout,
+		interval,
+	)
+
+	assert.NoError(t, err)
+
+	// Check the attributes of the resource
+	nd := getSecurityDomain(t, client, tgwName, ndName)
+
+	assert.Equal(t, nd.Name, ndName)
+	assert.Equal(t, nd.AwsTgwName, tgwName)
 }
+
 
 func testAccAwsTgwNetworkDomainBasic(rName string, tgwName string, awsSideAsNumber string, ndName string) string {
 	return fmt.Sprintf(`

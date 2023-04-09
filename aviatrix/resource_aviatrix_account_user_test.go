@@ -1,8 +1,8 @@
 package aviatrix
 
 import (
+	"encoding/json"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
@@ -12,17 +12,12 @@ import (
 )
 
 func TestAccAviatrixAccountUser_basic(t *testing.T) {
-	var account goaviatrix.AccountUser
-
-	skipAcc := os.Getenv("SKIP_ACCOUNT_USER")
-	if skipAcc == "yes" {
-		t.Skip("Skipping Account User test as SKIP_ACCOUNT_USER is set")
-	}
+	rInt := random.UniqueId()
 
 	terraformOptions := &terraform.Options{
 		TerraformDir: "./path/to/terraform/directory",
 		Vars: map[string]interface{}{
-			"username": fmt.Sprintf("tf-testing-%d", random.Random(1000)),
+			"username": fmt.Sprintf("tf-testing-%d", rInt),
 			"email":    "abc@xyz.com",
 			"password": "Password-1234^",
 		},
@@ -32,33 +27,64 @@ func TestAccAviatrixAccountUser_basic(t *testing.T) {
 
 	terraform.InitAndApply(t, terraformOptions)
 
-	resourceState := terraform.Show(t, terraformOptions, "-json")
-	assert.NoError(t, json.Unmarshal([]byte(resourceState), &account))
+	var account goaviatrix.AccountUser
+	err := json.Unmarshal([]byte(terraform.OutputJson(t, terraformOptions, "")), &account)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	assert.Equal(t, fmt.Sprintf("tf-testing-%d", rInt), account.UserName)
 	assert.Equal(t, "abc@xyz.com", account.Email)
 	assert.Equal(t, "Password-1234^", account.Password)
 }
 
+func TestAccAviatrixAccountUser_import(t *testing.T) {
+	rInt := random.UniqueId()
 
-func testAccAccountUserConfigBasic(rInt int) string {
-	return fmt.Sprintf(`
-resource "aviatrix_account_user" "foo" {
-	username = "tf-testing-%d"
-	email    = "abc@xyz.com"
-	password = "Password-1234^"
-}
-	`, rInt)
-}
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./path/to/terraform/directory",
+		Vars: map[string]interface{}{
+			"username": fmt.Sprintf("tf-testing-%d", rInt),
+			"email":    "abc@xyz.com",
+			"password": "Password-1234^",
+		},
+	}
 
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	var account goaviatrix.AccountUser
+	err := json.Unmarshal([]byte(terraform.OutputJson(t, terraformOptions, "")), &account)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	importedTerraformOptions := &terraform.Options{
+		TerraformDir: "./path/to/terraform/directory",
+		// Set the ID of the resource to import
+		ImportState: fmt.Sprintf("aviatrix_account_user.foo %s", account.UserName),
+	}
+
+	// Verify the import worked
+	terraform.Import(t, importedTerraformOptions)
+
+	resourceState := terraform.Show(t, importedTerraformOptions, "-json")
+	assert.NoError(t, json.Unmarshal([]byte(resourceState), &account))
+
+	assert.Equal(t, fmt.Sprintf("tf-testing-%d", rInt), account.UserName)
+	assert.Equal(t, "abc@xyz.com", account.Email)
+	assert.Equal(t, "Password-1234^", account.Password)
+}
 func testAccCheckAccountUserExists(n string, account *goaviatrix.AccountUser) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[n]
 		if !ok {
-			return fmt.Errorf("account Not found: %s", n)
+			return fmt.Errorf("account not found: %s", n)
 		}
+
 		if rs.Primary.ID == "" {
-			return fmt.Errorf("no Account ID is set")
+			return fmt.Errorf("no account ID is set")
 		}
 
 		client := testAccProvider.Meta().(*goaviatrix.Client)
@@ -68,9 +94,10 @@ func testAccCheckAccountUserExists(n string, account *goaviatrix.AccountUser) re
 		}
 
 		_, err := client.GetAccountUser(foundAccount)
-		if err == goaviatrix.ErrNotFound {
-			return fmt.Errorf("account not found in REST response")
+		if err != nil {
+			return fmt.Errorf("failed to get account: %s", err)
 		}
+
 		if foundAccount.UserName != rs.Primary.ID {
 			return fmt.Errorf("account not found")
 		}
@@ -93,9 +120,10 @@ func testAccCheckAccountUserDestroy(s *terraform.State) error {
 		}
 
 		_, err := client.GetAccountUser(foundAccount)
-		if err != nil {
+		if err == nil {
 			return fmt.Errorf("account still exists")
 		}
 	}
+
 	return nil
 }

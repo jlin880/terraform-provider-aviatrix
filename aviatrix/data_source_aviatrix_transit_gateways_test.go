@@ -1,14 +1,50 @@
-package aviatrix
+package aviatrix_test
 
 import (
-	"fmt"
-	"os"
-	"testing"
+    "fmt"
+    "os"
+    "testing"
 
-	"github.com/gruntwork-io/terratest/modules/random"
-	"github.com/gruntwork-io/terratest/modules/terraform"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
+    "github.com/gruntwork-io/terratest/modules/random"
+    "github.com/gruntwork-io/terratest/modules/terraform"
+    "github.com/stretchr/testify/assert"
 )
+
+func TestAccDataSourceAviatrixVpc_basic(t *testing.T) {
+    t.Parallel()
+
+    awsRegion := os.Getenv("AWS_REGION")
+    awsAccountID := os.Getenv("AWS_ACCOUNT_ID")
+
+    // Skip test if environment variables are not set
+    if awsRegion == "" || awsAccountID == "" {
+        t.Skip("Skipping test due to missing AWS_REGION and/or AWS_ACCOUNT_ID environment variables")
+    }
+
+    terraformOptions := &terraform.Options{
+        TerraformDir: "./",
+        Vars: map[string]interface{}{
+            "region":       awsRegion,
+            "account_name": fmt.Sprintf("tfa-%s", random.UniqueId()),
+            "name":         fmt.Sprintf("tfv-%s", random.UniqueId()),
+            "cidr":         "10.0.0.0/16",
+            "aws_account":  awsAccountID,
+        },
+    }
+
+    defer terraform.Destroy(t, terraformOptions)
+
+    terraform.InitAndApply(t, terraformOptions)
+
+    // Validate the data source
+    data := terraform.OutputMap(t, terraformOptions, "vpc")
+    if len(data) == 0 {
+        t.Fatalf("No VPC data returned")
+    }
+
+    assert.Equal(t, awsRegion, data["region"])
+    assert.Equal(t, "10.0.0.0/16", data["cidr"])
+}
 
 func TestTerraformAviatrixDataSourceTransitGateways(t *testing.T) {
 	t.Parallel()
@@ -78,6 +114,7 @@ func TestAccDataSourceAviatrixTransitGateways_basic(t *testing.T) {
 			"aws_access_key":            os.Getenv("AWS_ACCESS_KEY"),
 			"aws_secret_key":            os.Getenv("AWS_SECRET_KEY"),
 			"aws_region":                os.Getenv("AWS_REGION"),
+		
 			"aws_subnet":                os.Getenv("AWS_SUBNET"),
 			"gcp_project_id":            os.Getenv("GCP_ID"),
 			"gcp_credentials_file_path": os.Getenv("GCP_CREDENTIALS_FILEPATH"),

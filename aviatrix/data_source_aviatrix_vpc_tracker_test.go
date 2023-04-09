@@ -1,71 +1,54 @@
 package aviatrix
 
 import (
-	"fmt"
-	"os"
-	"testing"
+    "fmt"
+    "os"
+    "testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
-
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+    "github.com/gruntwork-io/terratest/modules/random"
+    "github.com/gruntwork-io/terratest/modules/terraform"
 )
 
 func TestAccDataSourceAviatrixVpcTracker_basic(t *testing.T) {
-	rName := acctest.RandString(5)
-	resourceName := "data.aviatrix_vpc_tracker.test"
+    t.Parallel()
 
-	skipAcc := os.Getenv("SKIP_DATA_VPC_TRACKER")
-	if skipAcc == "yes" {
-		t.Skip("Skipping data source vpc_tracker tests as 'SKIP_DATA_VPC_TRACKER' is set")
-	}
+    // Generate a random name to avoid naming conflicts
+    rName := random.UniqueId()
+    resourceName := "data.aviatrix_vpc_tracker.test"
 
-	msg := ". Set 'SKIP_DATA_VPC_TRACKER' to 'yes' to skip data source vpc_tracker tests"
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preGatewayCheck(t, msg)
-		},
-		Providers: testAccProviders,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccDataSourceAviatrixVpcTrackerConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccDataSourceAviatrixVpcTracker(resourceName),
-					resource.TestCheckResourceAttrSet(resourceName, "vpc_list.0.account_name"),
-					resource.TestCheckResourceAttrSet(resourceName, "vpc_list.0.name"),
-					resource.TestCheckResourceAttrSet(resourceName, "vpc_list.0.vpc_id"),
-					resource.TestCheckResourceAttrSet(resourceName, "vpc_list.0.cloud_type"),
-					resource.TestCheckResourceAttrSet(resourceName, "cloud_type"),
-				),
-			},
-		},
-	})
-}
+    // Check if the test should be skipped
+    skipAcc := os.Getenv("SKIP_DATA_VPC_TRACKER")
+    if skipAcc == "yes" {
+        t.Skip("Skipping data source vpc_tracker tests as 'SKIP_DATA_VPC_TRACKER' is set")
+    }
 
-func testAccDataSourceAviatrixVpcTrackerConfigBasic(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_account" "test" {
-	account_name       = "tfa-%s"
-	cloud_type         = 1
-	aws_account_number = "%s"
-	aws_iam            = false
-	aws_access_key     = "%s"
-	aws_secret_key     = "%s"
-}
-data "aviatrix_vpc_tracker" "test" {
-	cloud_type = 1
-}
-	`, rName, os.Getenv("AWS_ACCOUNT_NUMBER"), os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"))
-}
+    // Set up Terraform options
+    terraformOptions := &terraform.Options{
+        // The path to where our Terraform code is located
+        TerraformDir: "../examples/data-sources/aviatrix_vpc_tracker",
 
-func testAccDataSourceAviatrixVpcTracker(name string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		_, ok := s.RootModule().Resources[name]
-		if !ok {
-			return fmt.Errorf("root module has no data source called %s", name)
-		}
+        // Variables to pass to our Terraform code using -var options
+        Vars: map[string]interface{}{
+            "prefix": rName,
+        },
+    }
 
-		return nil
-	}
+    // Run `terraform init` and `terraform apply`
+    defer terraform.Destroy(t, terraformOptions)
+    terraform.InitAndApply(t, terraformOptions)
+
+    // Check that the data source is accessible and has the expected values
+    data := terraform.OutputAll(t, terraformOptions, resourceName)
+    expectedVpcTrackerAttributes := map[string]string{
+        "vpc_list.0.account_name": "tfa-" + rName,
+        "vpc_list.0.name":         "vpc-for-vpc-tracker-" + rName,
+        "vpc_list.0.vpc_id":       "vpc-" + rName,
+        "vpc_list.0.cloud_type":   "1",
+        "cloud_type":              "1",
+    }
+    for key, expectedValue := range expectedVpcTrackerAttributes {
+        if data[key].(string) != expectedValue {
+            t.Errorf("Unexpected value for %s. Got %v but expected %v", key, data[key].(string), expectedValue)
+        }
+    }
 }

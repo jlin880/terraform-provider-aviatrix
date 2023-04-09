@@ -1,74 +1,78 @@
-package aviatrix
-
 import (
-	"fmt"
-	"os"
-	"testing"
+    "fmt"
+    "os"
+    "testing"
 
-	"github.com/gruntwork-io/terratest/modules/terraform"
-	"github.com/stretchr/testify/assert"
+    "github.com/gruntwork-io/terratest/modules/terraform"
+    "github.com/stretchr/testify/assert"
 )
 
 func TestAccDataSourceAviatrixFirewall_basic(t *testing.T) {
-	skipAcc := os.Getenv("SKIP_DATA_FIREWALL")
-	if skipAcc == "yes" {
-		t.Skip("Skipping data source firewall tests as 'SKIP_DATA_FIREWALL' is set")
-	}
+    skipAcc := os.Getenv("SKIP_DATA_FIREWALL")
+    if skipAcc == "yes" {
+        t.Skip("Skipping data source firewall tests as 'SKIP_DATA_FIREWALL' is set")
+    }
 
-	testAccDir := "./testdata/aviatrix_firewall"
-	rName := RandomString(5)
-	terraformOptions := &terraform.Options{
-		TerraformDir: testAccDir,
-		Vars: map[string]interface{}{
-			"rand": rName,
-		},
-	}
+    testAccDir := "./testdata/aviatrix_firewall"
+    rName := RandomString(5)
+    terraformOptions := &terraform.Options{
+        TerraformDir: testAccDir,
+        Vars: map[string]interface{}{
+            "rand": rName,
+        },
+    }
 
-	defer terraform.Destroy(t, terraformOptions)
+    defer terraform.Destroy(t, terraformOptions)
 
-	terraform.InitAndApply(t, terraformOptions)
+    terraform.InitAndApply(t, terraformOptions)
 
-	// Check the firewall data source
-	expectedGwName := fmt.Sprintf("test-gw-%s", rName)
-	expectedBasePolicy := "allow-all"
-	expectedBaseLogEnabled := true
+    // Check the firewall data source
+    expectedGwName := fmt.Sprintf("test-gw-%s", rName)
+    expectedBasePolicy := "allow-all"
+    expectedBaseLogEnabled := true
 
-	actualGwName := terraform.Output(t, terraformOptions, "aviatrix_firewall.test.gw_name")
-	actualBasePolicy := terraform.Output(t, terraformOptions, "aviatrix_firewall.test.base_policy")
-	actualBaseLogEnabled := terraform.Output(t, terraformOptions, "aviatrix_firewall.test.base_log_enabled")
+    actualGwName := terraform.Output(t, terraformOptions, "aviatrix_firewall.test.gw_name")
+    actualBasePolicy := terraform.Output(t, terraformOptions, "aviatrix_firewall.test.base_policy")
+    actualBaseLogEnabled := terraform.Output(t, terraformOptions, "aviatrix_firewall.test.base_log_enabled")
 
-	assert.Equal(t, expectedGwName, actualGwName)
-	assert.Equal(t, expectedBasePolicy, actualBasePolicy)
-	assert.Equal(t, expectedBaseLogEnabled, actualBaseLogEnabled)
+    assert.Equal(t, expectedGwName, actualGwName)
+    assert.Equal(t, expectedBasePolicy, actualBasePolicy)
+    assert.Equal(t, expectedBaseLogEnabled, actualBaseLogEnabled)
 
-	// Check the firewall policy data source
-	expectedSrcIP := "10.15.0.224/32"
-	expectedDstIP := "10.12.0.172/32"
-	expectedProtocol := "tcp"
-	expectedPort := "0:65535"
-	expectedDescription := "This is policy no.1"
-	expectedAction := "allow"
-	expectedLogEnabled := false
+    // Check the firewall policy data source
+    expectedSrcIP := "10.15.0.224/32"
+    expectedDstIP := "10.12.0.172/32"
+    expectedProtocol := "tcp"
+    expectedPort := "0:65535"
+    expectedDescription := "This is policy no.1"
+    expectedAction := "allow"
+    expectedLogEnabled := false
 
-	actualSrcIP := terraform.Output(t, terraformOptions, "aviatrix_firewall.test_policy.0.src_ip")
-	actualDstIP := terraform.Output(t, terraformOptions, "aviatrix_firewall.test_policy.0.dst_ip")
-	actualProtocol := terraform.Output(t, terraformOptions, "aviatrix_firewall.test_policy.0.protocol")
-	actualPort := terraform.Output(t, terraformOptions, "aviatrix_firewall.test_policy.0.port")
-	actualDescription := terraform.Output(t, terraformOptions, "aviatrix_firewall.test_policy.0.description")
-	actualAction := terraform.Output(t, terraformOptions, "aviatrix_firewall.test_policy.0.action")
-	actualLogEnabled := terraform.Output(t, terraformOptions, "aviatrix_firewall.test_policy.0.log_enabled")
+    actualSrcIP := terraform.Output(t, terraformOptions, "aviatrix_firewall.test_policy.0.src_ip")
+    actualDstIP := terraform.Output(t, terraformOptions, "aviatrix_firewall.test_policy.0.dst_ip")
+    actualProtocol := terraform.Output(t, terraformOptions, "aviatrix_firewall.test_policy.0.protocol")
+    actualPort := terraform.Output(t, terraformOptions, "aviatrix_firewall.test_policy.0.port")
+    actualDescription := terraform.Output(t, terraformOptions, "aviatrix_firewall.test_policy.0.description")
+    actualAction := terraform.Output(t, terraformOptions, "aviatrix_firewall.test_policy.0.action")
+    actualLogEnabled := terraform.Output(t, terraformOptions, "aviatrix_firewall.test_policy.0.log_enabled")
 
-	assert.Equal(t, expectedSrcIP, actualSrcIP)
-	assert.Equal(t, expectedDstIP, actualDstIP)
-	assert.Equal(t, expectedProtocol, actualProtocol)
-	assert.Equal(t, expectedPort, actualPort)
-	assert.Equal(t, expectedDescription, actualDescription)
-	assert.Equal(t, expectedAction, actualAction)
-	assert.Equal(t, expectedLogEnabled, actualLogEnabled)
+    assert.Equal(t, expectedSrcIP, actualSrcIP)
+    assert.Equal(t, expectedDstIP, actualDstIP)
+    assert.Equal(t, expectedProtocol, actualProtocol)
+    assert.Equal(t, expectedPort, actualPort)
+    assert.Equal(t, expectedDescription, actualDescription)
+    assert.Equal(t, expectedAction, actualAction)
+    assert.Equal(t, expectedLogEnabled, actualLogEnabled)
 }
 
 func TestTerraformDataSourceAviatrixFirewall_basic(t *testing.T) {
-	t.Parallel()
+    t.Parallel()
+
+    // Set the skip flag.
+    skipAcc := os.Getenv("SKIP_DATA_FIREWALL")
+    if skipAcc == "yes" {
+        t.Skip("Skipping data source firewall tests as 'SKIP_DATA_FIREW
+
 
 	// Set the skip flag.
 	skipAcc := os.Getenv("SKIP_DATA_FIREWALL")
@@ -137,9 +141,11 @@ func TestAccDataSourceAviatrixFirewall(t *testing.T) {
 		t.Skip("Skipping data source firewall tests as 'SKIP_DATA_FIREWALL' is set")
 	}
 
-	rName := fmt.Sprintf("terratest-%s", RandomString(6))
+	// Define the resource name and a message to display in the pre-checks.
+	rName := random.UniqueId()
 	resourceName := "data.aviatrix_firewall.test"
 
+	// Set up Terraform options.
 	terraformOptions := &terraform.Options{
 		TerraformDir: "../examples/firewall",
 		Vars: map[string]interface{}{
@@ -158,10 +164,13 @@ func TestAccDataSourceAviatrixFirewall(t *testing.T) {
 		},
 	}
 
+	// At the end of the test, destroy the Terraform resources.
 	defer terraform.Destroy(t, terraformOptions)
 
+	// Create the Terraform resources.
 	terraform.InitAndApply(t, terraformOptions)
 
+	// Run the tests.
 	data := terraform.OutputAll(t, terraformOptions)
 	assert.Equal(t, data[resourceName+".gw_name"].Value, fmt.Sprintf("test-gw-%s", rName))
 	assert.Equal(t, data[resourceName+".base_policy"].Value, "allow-all")

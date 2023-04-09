@@ -1,43 +1,58 @@
-package aviatrix
+package test
 
 import (
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
 )
 
 func TestAccDataSourceAviatrixSpokeGateways_basic(t *testing.T) {
-	rName := acctest.RandString(5)
+	rName := random.UniqueId()
 	resourceName := "data.aviatrix_spoke_gateways.foo"
 
 	skipAcc := os.Getenv("SKIP_DATA_SPOKE_GATEWAYS")
 	if skipAcc == "yes" {
 		t.Skip("Skipping Data Source All Spoke Gateways tests as SKIP_DATA_SPOKE_GATEWAYS is set")
 	}
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-		},
-		Providers: testAccProviders,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccDataSourceAviatrixSpokeGatewaysConfigBasic(rName),
 
-				Check: resource.ComposeTestCheckFunc(
-					testAccDataSourceAviatrixSpokeGateways(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "gateway_list.0.gw_name", fmt.Sprintf("aa-tfg-aws-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "gateway_list.0.vpc_id", os.Getenv("AWS_VPC_ID")),
-					resource.TestCheckResourceAttr(resourceName, "gateway_list.0.vpc_reg", os.Getenv("AWS_REGION")),
-					resource.TestCheckResourceAttr(resourceName, "gateway_list.0.gw_size", "t2.micro"),
-				),
-			},
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/data-sources/aviatrix_spoke_gateways",
+		Upgrade:      true,
+		Vars: map[string]interface{}{
+			"rname": rName,
+			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
+			"aws_vpc_id":         os.Getenv("AWS_VPC_ID"),
+			"aws_region":         os.Getenv("AWS_REGION"),
+			"aws_subnet":         os.Getenv("AWS_SUBNET"),
 		},
-	})
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	gwName := terraform.Output(t, terraformOptions, "gw_name")
+
+	expected := map[string]interface{}{
+		"gateway_list.#":      "1",
+		"gateway_list.0.gw_name": fmt.Sprintf("aa-tfg-aws-%s", rName),
+		"gateway_list.0.vpc_id":   os.Getenv("AWS_VPC_ID"),
+		"gateway_list.0.vpc_reg":  os.Getenv("AWS_REGION"),
+		"gateway_list.0.gw_size":  "t2.micro",
+	}
+
+	terraform.OutputStruct(t, terraformOptions, "foo", &expected)
+
+	if gwName != expected["gateway_list.0.gw_name"].(string) {
+		t.Errorf("Expected gateway name %s but got %s", expected["gateway_list.0.gw_name"], gwName)
+	}
 }
+
 
 func testAccDataSourceAviatrixSpokeGatewaysConfigBasic(rName string) string {
 	return fmt.Sprintf(`

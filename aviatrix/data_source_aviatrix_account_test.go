@@ -1,77 +1,86 @@
 package aviatrix
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
 
+	"github.com/aviatrix-systems/terraform-provider-aviatrix/aviatrix"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 )
 
-func TestAccDataSourceAviatrixAccount_basic(t *testing.T) {
-	// Skip the test if the SKIP_DATA_ACCOUNT environment variable is set to "yes".
-	skipAcc := os.Getenv("SKIP_DATA_ACCOUNT")
-	if skipAcc == "yes" {
-		t.Skip("Skipping Data Source Account test as SKIP_DATA_ACCOUNT is set")
+func TestAccAviatrixDataSourceAccount_basic(t *testing.T) {
+	testAccTerratestEnv := os.Getenv("TESTACC_TERRATEST_ENV")
+	if testAccTerratestEnv == "" {
+		t.Fatal("TESTACC_TERRATEST_ENV must be set for acceptance tests")
 	}
 
-	// Set the AWS environment variables required for the test.
-	awsRegion := os.Getenv("AWS_REGION")
-	awsAccessKey := os.Getenv("AWS_ACCESS_KEY_ID")
-	awsSecretKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
-	awsAccountNumber := os.Getenv("AWS_ACCOUNT_NUMBER")
+	aviatrixAccountName := fmt.Sprintf("tf-testing-%s", random.UniqueId())
 
-	// Create a random name to use for the resources.
-	rName := random.UniqueId()
-
-	// Define the Terraform options for the test.
-	terraformOptions := &terraform.Options{
+	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
 		TerraformDir: "./",
-		EnvVars: map[string]string{
-			"AWS_REGION":            awsRegion,
-			"AWS_ACCESS_KEY_ID":     awsAccessKey,
-			"AWS_SECRET_ACCESS_KEY": awsSecretKey,
-			"AWS_ACCOUNT_NUMBER":    awsAccountNumber,
-		},
 		Vars: map[string]interface{}{
-			"account_name":       fmt.Sprintf("tf-testing-%s", rName),
-			"aws_account_number": awsAccountNumber,
-			"aws_access_key":     awsAccessKey,
-			"aws_secret_key":     awsSecretKey,
+			"account_name":        aviatrixAccountName,
+			"cloud_type":          1,
+			"aws_account_number":  os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_iam":             "false",
+			"aws_access_key":      os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":      os.Getenv("AWS_SECRET_KEY"),
 		},
-	}
+	})
 
-	// Destroy the Terraform resources at the end of the test.
 	defer terraform.Destroy(t, terraformOptions)
 
-	// Apply the Terraform configuration.
 	terraform.InitAndApply(t, terraformOptions)
 
-	// Check that the data source returns the expected result.
-	expectedAccountName := fmt.Sprintf("tf-testing-%s", rName)
-	dataSourceName := fmt.Sprintf("data.aviatrix_account.foo")
-	expectedAttributes := map[string]string{
-		"account_name": expectedAccountName,
-	}
-	terraform.OutputMap(t, terraformOptions, dataSourceName, expectedAttributes)
+	dataSourceName := "data.aviatrix_account.foo"
+	resource.Test(t, resource.TestCase{
+		PreCheck:          func() { testAccPreCheck(t) },
+		Providers:         testAccProviders,
+		CheckDestroy:      testAccCheckDataSourceAviatrixAccountDestroy,
+		ExpectNonEmptyPlan: true,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDataSourceAviatrixAccountConfigBasic(aviatrixAccountName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDataSourceAviatrixAccount(dataSourceName),
+				),
+			},
+		},
+	})
 }
 
-func testAccDataSourceAviatrixAccountConfigBasic(rName string) string {
+func testAccCheckDataSourceAviatrixAccountDestroy(s *terraform.State) error {
+	for _, rs := range s.RootModule().Resources {
+		if rs.Type != "aviatrix_account" && rs.Type != "data.aviatrix_account" {
+			continue
+		}
+
+		if _, err := testAccProviders["aviatrix"].Meta().(*aviatrix.Client).GetAccount(rs.Primary.ID); err == nil {
+			return fmt.Errorf("account %s still exists", rs.Primary.ID)
+		}
+	}
+
+	return nil
+}
+
+func testAccDataSourceAviatrixAccountConfigBasic(accountName string) string {
 	return fmt.Sprintf(`
 resource "aviatrix_account" "test" {
-	account_name       = "tf-testing-%s"
+	account_name       = "%s"
 	cloud_type         = 1
 	aws_account_number = "%s"
 	aws_iam            = "false"
 	aws_access_key     = "%s"
 	aws_secret_key     = "%s"
 }
+
 data "aviatrix_account" "foo" {
 	account_name = aviatrix_account.test.id
 }
-	`, rName, os.Getenv("AWS_ACCOUNT_NUMBER"), os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"))
+`, accountName, os.Getenv("AWS_ACCOUNT_NUMBER"), os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"))
 }
 
 func testAccDataSourceAviatrixAccount(name string) resource.TestCheckFunc {

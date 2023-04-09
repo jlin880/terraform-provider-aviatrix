@@ -1,4 +1,4 @@
-package aviatrix
+package test
 
 import (
 	"fmt"
@@ -61,12 +61,11 @@ func RandomString(n int) string {
 	return string(b)
 }
 
-
-func testAccCheckVPNProfileExists(n string, vpnProfile *goaviatrix.Profile) resource.TestCheckFunc {
+func TestAccCheckVPNProfileExists(n string, vpnProfile *goaviatrix.Profile) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[n]
 		if !ok {
-			return fmt.Errorf("VPN Profile Not found: %s", n)
+			return fmt.Errorf("VPN Profile not found: %s", n)
 		}
 		if rs.Primary.ID == "" {
 			return fmt.Errorf("no VPN Profile ID is set")
@@ -83,7 +82,7 @@ func testAccCheckVPNProfileExists(n string, vpnProfile *goaviatrix.Profile) reso
 			return err
 		}
 		if foundVPNProfile2.Name != rs.Primary.ID {
-			return fmt.Errorf("VPN profile not found")
+			return fmt.Errorf("VPN Profile not found")
 		}
 
 		*vpnProfile = *foundVPNProfile
@@ -91,23 +90,16 @@ func testAccCheckVPNProfileExists(n string, vpnProfile *goaviatrix.Profile) reso
 	}
 }
 
-func testAccCheckVPNProfileDestroy(s *terraform.State) error {
-	client := testAccProvider.Meta().(*goaviatrix.Client)
+func testAccCheckVPNProfileDestroy(t *testing.T, terraformOptions *terraform.Options) {
+	client := goaviatrix.NewClient(os.Getenv("AVIATRIX_API_KEY"), os.Getenv("AVIATRIX_API_SECRET"), os.Getenv("AVIATRIX_CONTROLLER_IP"))
 
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_vpn_profile" {
-			continue
-		}
-
-		foundVPNProfile := &goaviatrix.Profile{
-			Name: rs.Primary.Attributes["name"],
-		}
-
-		_, err := client.GetProfile(foundVPNProfile)
-		if err != goaviatrix.ErrNotFound {
-			return fmt.Errorf("VPN Profile still exists")
-		}
+	vpnProfile := terraform.Output(t, terraformOptions, "vpn_profile_name")
+	if vpnProfile == "" {
+		t.Fatal("VPN Profile name not found in Terraform output")
 	}
 
-	return nil
+	foundVPNProfile := &goaviatrix.Profile{Name: vpnProfile}
+	_, err := client.GetProfile(foundVPNProfile)
+	assert.EqualError(t, err, goaviatrix.ErrNotFound.Error(), "VPN Profile still exists")
 }
+

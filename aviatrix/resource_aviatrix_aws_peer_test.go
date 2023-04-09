@@ -1,77 +1,75 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
-func preAWSPeerCheck(t *testing.T, msgCommon string) {
-	vpcID1 := os.Getenv("AWS_VPC_ID")
-	if vpcID1 == "" {
-		t.Fatal("Environment variable AWS_VPC_ID is not set" + msgCommon)
-	}
-	vpcID2 := os.Getenv("AWS_VPC_ID2")
-	if vpcID2 == "" {
-		t.Fatal("Environment variable AWS_VPC_ID2 is not set" + msgCommon)
-	}
+func TestAviatrixAWSPeer_basic(t *testing.T) {
+	t.Parallel()
 
-	region1 := os.Getenv("AWS_REGION")
-	if region1 == "" {
-		t.Fatal("Environment variable AWS_REGION is not set" + msgCommon)
-	}
-	region2 := os.Getenv("AWS_REGION2")
-	if region2 == "" {
-		t.Fatal("Environment variable AWS_REGION2 is not set" + msgCommon)
-	}
-}
-
-func TestAccAviatrixAWSPeer_basic(t *testing.T) {
-	var awsPeer goaviatrix.AWSPeer
+	// Get AWS region and VPC IDs from environment variables
+	awsRegion1 := os.Getenv("AWS_REGION")
+	awsRegion2 := os.Getenv("AWS_REGION2")
 	vpcID1 := os.Getenv("AWS_VPC_ID")
 	vpcID2 := os.Getenv("AWS_VPC_ID2")
-	region1 := os.Getenv("AWS_REGION")
-	region2 := os.Getenv("AWS_REGION2")
 
-	rInt := acctest.RandInt()
-	resourceName := "aviatrix_aws_peer.test_aws_peer"
-
-	skipAcc := os.Getenv("SKIP_AWS_PEER")
-	if skipAcc == "yes" {
-		t.Skip("Skipping aviatrix AWS peering test as SKIP_AWS_PEER is set")
+	// Check if the necessary environment variables are set
+	if awsRegion1 == "" || awsRegion2 == "" || vpcID1 == "" || vpcID2 == "" {
+		t.Fatal("Missing environment variables: AWS_REGION, AWS_REGION2, AWS_VPC_ID, or AWS_VPC_ID2")
 	}
-	msgCommon := ". Set SKIP_AWS_PEER to yes to skip AWS peer tests"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, msgCommon)
-			preAWSPeerCheck(t, msgCommon)
+	// Generate a random name to avoid collisions with existing resources
+	randName := random.UniqueId()
+
+	terraformOptions := &terraform.Options{
+		// The path to the Terraform code to test
+		TerraformDir: "../examples/aws_peer",
+
+		// Variables to pass to the Terraform code during the test
+		Vars: map[string]interface{}{
+			"account_name1": fmt.Sprintf("tf-testing-%s-1", randName),
+			"account_name2": fmt.Sprintf("tf-testing-%s-2", randName),
+			"vpc_id1":       vpcID1,
+			"vpc_id2":       vpcID2,
+			"vpc_reg1":      awsRegion1,
+			"vpc_reg2":      awsRegion2,
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckAWSPeerDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccAWSPeerConfigBasic(rInt, vpcID1, vpcID2, region1, region2),
-				Check: resource.ComposeTestCheckFunc(
-					tesAccCheckAWSPeerExists(resourceName, &awsPeer),
-					resource.TestCheckResourceAttr(resourceName, "vpc_id1", vpcID1),
-					resource.TestCheckResourceAttr(resourceName, "vpc_id2", vpcID2),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	}
+
+	// Delete the resources at the end of the test
+	defer terraform.Destroy(t, terraformOptions)
+
+	// Deploy the Terraform code
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Check if the AWS peer exists
+	awsPeer := goaviatrix.AWSPeer{
+		VpcID1: vpcID1,
+		VpcID2: vpcID2,
+	}
+
+	client := goaviatrix.NewClient(os.Getenv("AVIATRIX_CONTROLLER_IP"), os.Getenv("AVIATRIX_USERNAME"), os.Getenv("AVIATRIX_PASSWORD"))
+
+	err := client.GetAWSPeer(&awsPeer)
+	assert.NoError(t, err)
+
+	// Check if the AWS peer attributes match the Terraform configuration
+	assert.Equal(t, terraformOptions.Vars["account_name1"].(string), awsPeer.AccountName1)
+	assert.Equal(t, terraformOptions.Vars["account_name2"].(string), awsPeer.AccountName2)
+	assert.Equal(t, terraformOptions.Vars["vpc_id1"].(string), awsPeer.VpcID1)
+	assert.Equal(t, terraformOptions.Vars["vpc_id2"].(string), awsPeer.VpcID2)
+	assert.Equal(t, terraformOptions.Vars["vpc_reg1"].(string), awsPeer.VpcReg1)
+	assert.Equal(t, terraformOptions.Vars["vpc_reg2"].(string), awsPeer.VpcReg2)
 }
+
 
 func testAccAWSPeerConfigBasic(rInt int, vpcID1 string, vpcID2 string, region1 string, region2 string) string {
 	return fmt.Sprintf(`

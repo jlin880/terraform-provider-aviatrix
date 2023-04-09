@@ -1,12 +1,12 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
 	"os"
 	"testing"
 
+	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -29,11 +29,10 @@ func TestTerraformAviatrixDataSourceGatewayImage(t *testing.T) {
 
 	assert.Equal(t, expectedOutput, output)
 
-	// check if resource exists
-	res := terraform.GetStateResource(t, terraformOptions, resourceName)
-	if res == nil {
-		t.Fatalf("resource '%s' does not exist", resourceName)
-	}
+	// Check if resource exists
+	res, err := terraform.Provider().GetSchema().ResourceTypes["aviatrix_gateway_image"].DataSourcesMap["foo"].StateFunc(terraform.NewResourceConfigRaw(nil), terraformOptions)
+	assert.NoError(t, err)
+	assert.NotNil(t, res)
 }
 
 func TestTerraformAviatrixDataSourceGatewayImageSkip(t *testing.T) {
@@ -43,6 +42,66 @@ func TestTerraformAviatrixDataSourceGatewayImageSkip(t *testing.T) {
 			"SKIP_DATA_GATEWAY_IMAGE": "yes",
 		},
 	}
+
+	resourceName := "data.aviatrix_gateway_image.foo"
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Check if resource exists
+	res, err := terraform.Provider().GetSchema().ResourceTypes["aviatrix_gateway_image"].DataSourcesMap["foo"].StateFunc(terraform.NewResourceConfigRaw(nil), terraformOptions)
+	assert.NoError(t, err)
+	assert.Nil(t, res)
+}
+
+func TestAccDataSourceAviatrixGatewayImage_basic(t *testing.T) {
+	resourceName := "data.aviatrix_gateway_image.foo"
+
+	skipAcc := os.Getenv("SKIP_DATA_GATEWAY_IMAGE")
+	if skipAcc == "yes" {
+		t.Skip("Skipping Data Source Gateway Image test as SKIP_DATA_GATEWAY_IMAGE is set")
+	}
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: ".",
+		Vars: map[string]interface{}{
+			"rand": random.UniqueId(),
+		},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Check the gateway image data source
+	expectedImageVersion := "hvm-cloudx-aws-022021"
+	actualImageVersion := terraform.Output(t, terraformOptions, "image_version")
+	assert.Equal(t, expectedImageVersion, actualImageVersion)
+
+	// Check if resource exists
+	res, err := terraform.Provider().GetSchema().ResourceTypes["aviatrix_gateway_image"].DataSourcesMap["foo"].StateFunc(terraform.NewResourceConfigRaw(nil), terraformOptions)
+	assert.NoError(t, err)
+	assert.NotNil(t, res)
+}
+
+func TestAccDataSourceAviatrixGatewayImageSkip(t *testing.T) {
+	resourceName := "data.aviatrix_gateway_image.foo"
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: ".",
+		EnvVars: map[string]string{
+			"SKIP_DATA_GATEWAY_IMAGE": "yes",
+		},
+		Vars: map[string]interface{}{
+			"rand": random.UniqueId(),
+		},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
 
 	resourceName := "data.aviatrix_gateway_image.foo"
 

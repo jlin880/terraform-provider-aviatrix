@@ -7,7 +7,6 @@ import (
 
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 )
 
 func TestAccDataSourceAviatrixGateway_basic(t *testing.T) {
@@ -38,6 +37,53 @@ func TestAccDataSourceAviatrixGateway_basic(t *testing.T) {
 			"gw_interface":   "0",
 			"public_ip":      "AUTO_ALLOCATE",
 			"allocate_eip":   "true",
+			"disable_srcdst": "false",
+			"tags": map[string]string{
+				"Automation": "Terraform",
+			},
+		},
+		EnvVars: map[string]string{
+			"SKIP_BACKEND": "true",
+		},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	gwName := terraform.Output(t, terraformOptions, "gw_name")
+
+	if err := terraform.OutputStruct(resourceName, &GatewayData{}); err != nil {
+		t.Fatalf("Failed to decode Terraform output: %v", err)
+	}
+
+	expected := GatewayData{
+		AccountName: "tfa-" + rName,
+		GwName:      "tfg-" + rName,
+		VpcID:       os.Getenv("AWS_VPC_ID"),
+		VpcReg:      os.Getenv("AWS_REGION"),
+		GwSize:      "t2.micro",
+	}
+
+	if gwName != expected.GwName {
+		t.Errorf("Expected gateway name %s but got %s", expected.GwName, gwName)
+	}
+
+	if err := terraform.OutputStruct(resourceName, &expected); err != nil {
+		t.Fatalf("Failed to decode Terraform output: %v", err)
+	}
+
+	// Verify the output in Terratest format
+	expectedOutput := map[string]string{
+		"gw_name":       expected.GwName,
+		"vpc_id":        expected.VpcID,
+		"vpc_reg":       expected.VpcReg,
+		"gw_size":       expected.GwSize,
+		"account_name":  expected.AccountName,
+		"cloud_type":    "1",
+		"gw_interface":  "0",
+		"public_ip":     "AUTO_ALLOCATE",
+		"allocate_eip":  "true",
 			"disable_srcdst": "false",
 			"tags": map[string]string{
 				"Automation": "Terraform",

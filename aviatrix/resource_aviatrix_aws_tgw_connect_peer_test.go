@@ -1,78 +1,82 @@
 package aviatrix
 
 import (
-	"context"
-	"fmt"
-	"os"
-	"testing"
+    "context"
+    "fmt"
+    "os"
+    "testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+    "github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+    "github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
+    "github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+    "github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
 
 func TestAccAviatrixAwsTgwConnectPeer_basic(t *testing.T) {
-	if os.Getenv("SKIP_AWS_TGW_CONNECT_PEER") == "yes" {
-		t.Skip("Skipping Branch Router test as SKIP_AWS_TGW_CONNECT_PEER is set")
-	}
+    if os.Getenv("SKIP_AWS_TGW_CONNECT_PEER") == "yes" {
+        t.Skip("Skipping Branch Router test as SKIP_AWS_TGW_CONNECT_PEER is set")
+    }
 
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_aws_tgw_connect_peer.test_aws_tgw_connect_peer"
+    rName := acctest.RandString(5)
+    resourceName := "aviatrix_aws_tgw_connect_peer.test_aws_tgw_connect_peer"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckAwsTgwConnectPeerDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccAwsTgwConnectPeerBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckAwsTgwConnectPeerExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "tgw_name", "aws-tgw-"+rName),
-					resource.TestCheckResourceAttr(resourceName, "connection_name", "aws-tgw-connect-"+rName),
-					resource.TestCheckResourceAttr(resourceName, "connect_peer_name", "connect-peer-"+rName),
-					resource.TestCheckResourceAttr(resourceName, "peer_as_number", "65001"),
-					resource.TestCheckResourceAttr(resourceName, "peer_gre_address", "172.31.1.11"),
-					resource.TestCheckResourceAttr(resourceName, "bgp_inside_cidrs.0", "169.254.6.0/29"),
-					resource.TestCheckResourceAttr(resourceName, "tgw_gre_address", "10.0.0.32"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+    resource.Test(t, resource.TestCase{
+        PreCheck: func() {
+            testAccPreCheck(t)
+        },
+        Providers:    testAccProviders,
+        CheckDestroy: testAccCheckAwsTgwConnectPeerDestroy,
+        Steps: []resource.TestStep{
+            {
+                Config: testAccAwsTgwConnectPeerBasic(rName),
+                Check: resource.ComposeTestCheckFunc(
+                    testAccCheckAwsTgwConnectPeerExists(resourceName),
+                    resource.TestCheckResourceAttr(resourceName, "tgw_name", "aws-tgw-"+rName),
+                    resource.TestCheckResourceAttr(resourceName, "connection_name", "aws-tgw-connect-"+rName),
+                    resource.TestCheckResourceAttr(resourceName, "connect_peer_name", "connect-peer-"+rName),
+                    resource.TestCheckResourceAttr(resourceName, "peer_as_number", "65001"),
+                    resource.TestCheckResourceAttr(resourceName, "peer_gre_address", "172.31.1.11"),
+                    resource.TestCheckResourceAttr(resourceName, "bgp_inside_cidrs.0", "169.254.6.0/29"),
+                    resource.TestCheckResourceAttr(resourceName, "tgw_gre_address", "10.0.0.32"),
+                ),
+            },
+            {
+                ResourceName:      resourceName,
+                ImportState:       true,
+                ImportStateVerify: true,
+            },
+        },
+    })
 }
 
 func testAccAwsTgwConnectPeerBasic(rName string) string {
-	return fmt.Sprintf(`
+    return fmt.Sprintf(`
 %s
 
 resource "aviatrix_aws_tgw" "test_aws_tgw" {
-	account_name       = aviatrix_account.aws.account_name
-	aws_side_as_number = "64512"
-	region             = "%[3]s"
-	tgw_name           = "aws-tgw-%[2]s"
-	
-	cidrs = ["10.0.0.0/24", "10.1.0.0/24", "8.0.0.0/24", "5.0.0.0/24"]
+    account_name       = aviatrix_account.aws.account_name
+    aws_side_as_number = "64512"
+    region             = "%[3]s"
+    tgw_name           = "aws-tgw-%[2]s"
+
+    cidrs = ["10.0.0.0/24", "10.1.0.0/24", "8.0.0.0/24", "5.0.0.0/24"]
 }
+
 resource "aviatrix_aws_tgw_network_domain" "Default_Domain" {
-	name     = "Default_Domain"
-	tgw_name = aviatrix_aws_tgw.test_aws_tgw.tgw_name
+    name     = "Default_Domain"
+    tgw_name = aviatrix_aws_tgw.test_aws_tgw.tgw_name
 }
+
 resource "aviatrix_aws_tgw_network_domain" "Shared_Service_Domain" {
-	name     = "Shared_Service_Domain"
-	tgw_name = aviatrix_aws_tgw.test_aws_tgw.tgw_name
+    name     = "Shared_Service_Domain"
+    tgw_name = aviatrix_aws_tgw.test_aws_tgw.tgw_name
 }
+
 resource "aviatrix_aws_tgw_network_domain" "Aviatrix_Edge_Domain" {
-	name     = "Aviatrix_Edge_Domain"
-	tgw_name = aviatrix_aws_tgw.test_aws_tgw.tgw_name
+    name     = "Aviatrix_Edge_Domain"
+    tgw_name = aviatrix_aws_tgw.test_aws_tgw.tgw_name
 }
+
 resource "aviatrix_aws_tgw_peering_domain_conn" "default_nd_conn1" {
 	tgw_name1    = aviatrix_aws_tgw.test_aws_tgw.tgw_name
 	domain_name1 = aviatrix_aws_tgw_network_domain.Aviatrix_Edge_Domain.name
