@@ -10,7 +10,7 @@ import (
     "github.com/stretchr/testify/assert"
 )
 
-func TestAccDataSourceAviatrixFireNetFirewallManager_basic(t *testing.T) {
+func TestAccDataSourceAviatrixFirenetFirewallManager_basic(t *testing.T) {
     t.Parallel()
 
     // Skip the test if the environment variable is set

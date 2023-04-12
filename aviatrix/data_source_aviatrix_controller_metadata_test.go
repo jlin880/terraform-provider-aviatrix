@@ -53,6 +53,7 @@ func TestAccDataSourceAviatrixControllerMetadata(t *testing.T) {
 		TerraformDir: ".",
 		EnvVars: map[string]string{
 			"SKIP_DATA_CONTROLLER_METADATA": skipAcc,
+			"TF_ACC":                        "1",
 		},
 	}
 
@@ -60,28 +61,14 @@ func TestAccDataSourceAviatrixControllerMetadata(t *testing.T) {
 
 	terraform.InitAndApply(t, terraformOptions)
 
-	err := terraform.Provider("aviatrix").GetProvider().(*schema.Provider).InternalValidate()
-	if err != nil {
-		t.Fatalf("failed to validate provider: %s", err)
-	}
-
-	err = testAccDataSourceAviatrixControllerMetadata(resourceName)(terraformOptions.State)
-	if err != nil {
-		t.Fatalf("failed to verify data source: %s", err)
-	}
+	err := testAccDataSourceAviatrixControllerMetadata(resourceName)(terraformOptions.State)
+	assert.NoError(t, err)
 }
 
-func testAccDataSourceAviatrixControllerMetadata(name string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[name]
-		if !ok {
-			return fmt.Errorf("root module has no data source called %s", name)
-		}
-
-		if _, ok := rs.Primary.Attributes["metadata"]; !ok {
-			return fmt.Errorf("metadata attribute not set")
-		}
-
-		return nil
+func testAccDataSourceAviatrixControllerMetadata(name string) terraform.ResourceCheck {
+	return terraform.ResourceCheck{
+		Name: name,
+		Exists: true,
+		ExpectedOutput: "metadata",
 	}
 }

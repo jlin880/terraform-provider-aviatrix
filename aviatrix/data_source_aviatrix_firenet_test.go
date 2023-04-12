@@ -136,55 +136,46 @@ data "aviatrix_firenet" "foo" {
 func TestAccDataSourceAviatrixFireNet(t *testing.T) {
 	t.Parallel()
 
-	// Skip the test if the SKIP_FIRENET environment variable is set
-	skipFireNet := os.Getenv("SKIP_FIRENET")
-	if skipFireNet == "true" {
-		t.Skip("Skipping FireNet test as SKIP_FIRENET is set")
+	// Check if the test should be skipped
+	skipAcc := os.Getenv("SKIP_DATA_FIRENET")
+	if skipAcc == "yes" {
+		t.Skip("Skipping Data Source FireNet tests as SKIP_DATA_FIRENET is set")
 	}
 
-	// Get AWS access credentials from the environment variables
-	awsAccessKey := os.Getenv("AWS_ACCESS_KEY")
-	awsSecretKey := os.Getenv("AWS_SECRET_KEY")
-	awsAccountNumber := os.Getenv("AWS_ACCOUNT_NUMBER")
-	awsRegion := os.Getenv("AWS_REGION")
+	// Generate a random name to avoid naming conflicts
+	rName := random.UniqueId()
 
-	// Create a random name to avoid naming conflicts
-	testSuffix := random.UniqueId()
-	testAccountName := fmt.Sprintf("tfa-%s", testSuffix)
-	testVpcName := fmt.Sprintf("vpc-for-firenet-%s", testSuffix)
-	testTransitGatewayName := fmt.Sprintf("tftg-%s", testSuffix)
-	testFirewallInstanceName := fmt.Sprintf("tffw-%s", testSuffix)
-
-	// Set up Terraform options
 	terraformOptions := &terraform.Options{
-		// Use the path to the Terraform code that creates the FireNet data source
-		TerraformDir: "../path/to/terraform/code",
+		// The path to where our Terraform code is located
+		TerraformDir: "../examples/data-sources/aviatrix_firenet",
 
-		// Variables to pass to the Terraform code using -var options
+		// Variables to pass to our Terraform code using -var options
 		Vars: map[string]interface{}{
-			"aws_access_key":       awsAccessKey,
-			"aws_secret_key":       awsSecretKey,
-			"aws_account_number":   awsAccountNumber,
-			"aws_region":           awsRegion,
-			"test_account_name":    testAccountName,
-			"test_vpc_name":        testVpcName,
-			"test_transit_gateway": testTransitGatewayName,
-			"test_firewall":        testFirewallInstanceName,
+			"prefix": rName,
 		},
 	}
 
-	// Clean up resources at the end of the test
+	// Clean up resources after the test is complete
 	defer terraform.Destroy(t, terraformOptions)
 
-	// Deploy the Terraform code
+	// Create resources needed for the test
 	terraform.InitAndApply(t, terraformOptions)
 
-	// Check that the FireNet data source was created successfully
+	// Test that the data source returns expected results
 	dataSourceName := "data.aviatrix_firenet.foo"
-	err := terraform.OutputHasNoErrors(t, terraformOptions, dataSourceName)
-	if err != nil {
-		return err
+	expectedFireNetAttributes := map[string]string{
+		"vpc_id":                                          fmt.Sprintf("vpc-for-firenet-%s", rName),
+		"inspection_enabled":                              "true",
+		"egress_enabled":                                  "false",
+		"firewall_instance_association.#":                 "1",
+		"firewall_instance_association.0.attached":        "true",
+		"firewall_instance_association.0.firenet_gw_name": fmt.Sprintf("tftg-%s", rName),
+		"firewall_instance_association.0.firewall_name":   fmt.Sprintf("tffw-%s", rName),
 	}
-
-	return nil
+	actualFireNetAttributes := terraform.OutputAll(t, terraformOptions, dataSourceName)
+	for key, expectedValue := range expectedFireNetAttributes {
+		if actualFireNetAttributes[key] != expectedValue {
+			t.Errorf("Unexpected value for %s. Got %v but expected %v", key, actualFireNetAttributes[key], expectedValue)
+		}
+	}
 }

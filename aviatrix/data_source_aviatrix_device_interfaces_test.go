@@ -5,9 +5,11 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/gruntwork-io/terratest/modules/terraform/resource"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -41,7 +43,9 @@ func TestAccDataSourceAviatrixDeviceInterfaces_basic(t *testing.T) {
 	assert.Equal(t, dataSourceName, terraformOptions.StatePath)
 }
 
-func TestAccDataSourceAviatrixDeviceInterfaces_basic(t *testing.T) {
+func TestAccDataSourceAviatrixDeviceInterfaces(t *testing.T) {
+	t.Parallel()
+
 	rName := random.UniqueId()
 	resourceName := "data.aviatrix_device_interfaces.foo"
 
@@ -76,32 +80,15 @@ func TestAccDataSourceAviatrixDeviceInterfaces_basic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	err = testAccDataSourceAviatrixDeviceInterfaces(resourceName)(terraformOptions.State)
+	assert.NoError(t, err)
 }
 
-
-func testAccDataSourceDeviceInterfacesConfigBasic(rName string) string {
-	return fmt.Sprintf(`
-data "aviatrix_device_interfaces" "foo" {
-	device_name = "%s"
-}
-	`, os.Getenv("CLOUDN_DEVICE_NAME"))
-}
-
-func testAccDataSourceAviatrixDeviceInterfaces(name string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[name]
-		if !ok {
-			return fmt.Errorf("root module has no data source called %s", name)
-		}
-
-		if _, ok := rs.Primary.Attributes["wan_interfaces.0.wan_primary_interface"]; !ok {
-			return fmt.Errorf("wan_primary_interface not found in the output of data source")
-		}
-
-		if _, ok := rs.Primary.Attributes["wan_interfaces.0.wan_primary_interface_public_ip"]; !ok {
-			return fmt.Errorf("wan_primary_interface_public_ip not found in the output of data source")
-		}
-
-		return nil
+func testAccDataSourceAviatrixDeviceInterfaces(name string) terraform.ResourceCheck {
+	return terraform.ResourceCheck{
+		Name: name,
+		Exists: true,
+		ExpectedOutput: "wan_primary_interface,wan_primary_interface_public_ip",
 	}
 }

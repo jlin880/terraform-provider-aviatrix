@@ -65,45 +65,45 @@ func TestTerraformAviatrixVGWConn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, foundVGWConn.ConnName, foundVGWConn2.ConnName)
 	assert.Equal(t, foundVGWConn.GwName, foundVGWConn2.GwName)
-	assert.Equal(t, foundVGWConn.V
-
-
-		foundVGWConn2, err := client.GetVGWConnDetail(foundVGWConn)
-		if err != nil {
-			return err
-		}
-		if foundVGWConn2.ConnName != rs.Primary.Attributes["conn_name"] {
-			return fmt.Errorf("conn_name Not found in created attributes")
-		}
-
-		*vgwConn = *foundVGWConn
-		return nil
+	assert.Equal(t, foundVGWConn.VPCId, foundVGWConn2.VPCId)
+	assert.Equal(t, foundVGWConn.BgpVGWId, foundVGWConn2.BgpVGWId)
+	assert.Equal(t, foundVGWConn.BgpVGWAccount, foundVGWConn2.BgpVGWAccount)
+	foundVGWConn2, err := client.GetVGWConnDetail(foundVGWConn)
+	if err != nil {
+		return err
 	}
+	if foundVGWConn2.ConnName != rs.Primary.Attributes["conn_name"] {
+		return fmt.Errorf("conn_name not found in created attributes")
+	}
+
+	*vgwConn = *foundVGWConn
+	return nil
+}
 }
 
 func testAccCheckVGWConnDestroy(s *terraform.State) error {
-	client := testAccProvider.Meta().(*goaviatrix.Client)
+client := testAccProvider.Meta().(*goaviatrix.Client)
 
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_vgw_conn" {
-			continue
-		}
-
-		foundVGWConn := &goaviatrix.VGWConn{
-			ConnName:      rs.Primary.Attributes["conn_name"],
-			GwName:        rs.Primary.Attributes["gw_name"],
-			VPCId:         rs.Primary.Attributes["vpc_id"],
-			BgpVGWId:      rs.Primary.Attributes["bgp_vgw_id"],
-			BgpVGWAccount: rs.Primary.Attributes["bgp_vgw_account"],
-			BgpVGWRegion:  rs.Primary.Attributes["bgp_vgw_region"],
-			BgpLocalAsNum: rs.Primary.Attributes["bgp_local_as_num"],
-		}
-
-		_, err := client.GetVGWConnDetail(foundVGWConn)
-		if err != goaviatrix.ErrNotFound {
-			return fmt.Errorf("vgw connection still exists")
-		}
+for _, rs := range s.RootModule().Resources {
+	if rs.Type != "aviatrix_vgw_conn" {
+		continue
 	}
 
-	return nil
+	foundVGWConn := &goaviatrix.VGWConn{
+		ConnName:      rs.Primary.Attributes["conn_name"],
+		GwName:        rs.Primary.Attributes["gw_name"],
+		VPCId:         rs.Primary.Attributes["vpc_id"],
+		BgpVGWId:      rs.Primary.Attributes["bgp_vgw_id"],
+		BgpVGWAccount: rs.Primary.Attributes["bgp_vgw_account"],
+		BgpVGWRegion:  rs.Primary.Attributes["bgp_vgw_region"],
+		BgpLocalAsNum: rs.Primary.Attributes["bgp_local_as_num"],
+	}
+
+	_, err := client.GetVGWConnDetail(foundVGWConn)
+	if err != goaviatrix.ErrNotFound {
+		return fmt.Errorf("vgw connection still exists")
+	}
+}
+
+return nil
 }

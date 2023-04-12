@@ -1,84 +1,87 @@
-package aviatrix_test
+package test
 
 import (
-    "fmt"
-    "os"
-    "testing"
+	"fmt"
+	"os"
+	"testing"
 
-    "github.com/gruntwork-io/terratest/modules/random"
-    "github.com/gruntwork-io/terratest/modules/terraform"
-    "github.com/stretchr/testify/assert"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccDataSourceAviatrixVpc_basic(t *testing.T) {
-    t.Parallel()
-
-    awsRegion := os.Getenv("AWS_REGION")
-    awsAccountID := os.Getenv("AWS_ACCOUNT_ID")
-
-    // Skip test if environment variables are not set
-    if awsRegion == "" || awsAccountID == "" {
-        t.Skip("Skipping test due to missing AWS_REGION and/or AWS_ACCOUNT_ID environment variables")
-    }
-
-    terraformOptions := &terraform.Options{
-        TerraformDir: "./",
-        Vars: map[string]interface{}{
-            "region":       awsRegion,
-            "account_name": fmt.Sprintf("tfa-%s", random.UniqueId()),
-            "name":         fmt.Sprintf("tfv-%s", random.UniqueId()),
-            "cidr":         "10.0.0.0/16",
-            "aws_account":  awsAccountID,
-        },
-    }
-
-    defer terraform.Destroy(t, terraformOptions)
-
-    terraform.InitAndApply(t, terraformOptions)
-
-    // Validate the data source
-    data := terraform.OutputMap(t, terraformOptions, "vpc")
-    if len(data) == 0 {
-        t.Fatalf("No VPC data returned")
-    }
-
-    assert.Equal(t, awsRegion, data["region"])
-    assert.Equal(t, "10.0.0.0/16", data["cidr"])
-}
-
-func TestTerraformAviatrixDataSourceTransitGateways(t *testing.T) {
 	t.Parallel()
 
-	awsVpcId := os.Getenv("AWS_VPC_ID")
 	awsRegion := os.Getenv("AWS_REGION")
-	awsSubnet := os.Getenv("AWS_SUBNET")
-	gcpProjectId := os.Getenv("GCP_ID")
-	gcpZone := os.Getenv("GCP_ZONE")
-	gcpSubnet := os.Getenv("GCP_SUBNET")
+	awsAccountID := os.Getenv("AWS_ACCOUNT_ID")
 
-	if awsVpcId == "" || awsRegion == "" || awsSubnet == "" || gcpProjectId == "" || gcpZone == "" || gcpSubnet == "" {
-		t.Fatal("Missing required environment variables")
+	// Skip test if environment variables are not set
+	if awsRegion == "" || awsAccountID == "" {
+		t.Skip("Skipping test due to missing AWS_REGION and/or AWS_ACCOUNT_ID environment variables")
 	}
 
-	testAccountNameAws := fmt.Sprintf("aa-tfa-%s", random.UniqueId())
-	testAccountNameGcp := fmt.Sprintf("aa-tfa-gcp-%s", random.UniqueId())
-	gwNameAws := fmt.Sprintf("aa-tfg-aws-%s", random.UniqueId())
-	gwNameGcp := fmt.Sprintf("aa-tfg-gcp-%s", random.UniqueId())
-
 	terraformOptions := &terraform.Options{
-		TerraformDir: "../../examples/aviatrix-data-sources-transit-gateways",
+		TerraformDir: "./",
 		Vars: map[string]interface{}{
-			"account_name_aws": testAccountNameAws,
-			"account_name_gcp": testAccountNameGcp,
-			"aws_vpc_id":       awsVpcId,
-			"aws_region":       awsRegion,
-			"aws_subnet":       awsSubnet,
-			"gcp_project_id":   gcpProjectId,
-			"gcp_zone":         gcpZone,
-			"gcp_subnet":       gcpSubnet,
-			"gw_name_aws":      gwNameAws,
-			"gw_name_gcp":      gwNameGcp,
-			"gw_size_aws":      "t2.micro",
+			"region":       awsRegion,
+			"account_name": fmt.Sprintf("tfa-%s", random.UniqueId()),
+			"name":         fmt.Sprintf("tfv-%s", random.UniqueId()),
+			"cidr":         "10.0.0.0/16",
+			"aws_account":  awsAccountID,
+		},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Validate the data source
+	data := terraform.OutputMap(t, terraformOptions, "vpc")
+	if len(data) == 0 {
+		t.Fatalf("No VPC data returned")
+	}
+
+	assert.Equal(t, awsRegion, data["region"])
+	assert.Equal(t, "10.0.0.0/16", data["cidr"])
+}
+
+func TestAccDataSourceAviatrixTransitGateways(t *testing.T) {
+    t.Parallel()
+
+    rName := random.UniqueId()
+
+    awsVpcId := os.Getenv("AWS_VPC_ID")
+    awsRegion := os.Getenv("AWS_REGION")
+    awsSubnet := os.Getenv("AWS_SUBNET")
+    gcpProjectId := os.Getenv("GCP_ID")
+    gcpZone := os.Getenv("GCP_ZONE")
+    gcpSubnet := os.Getenv("GCP_SUBNET")
+
+    if awsVpcId == "" || awsRegion == "" || awsSubnet == "" || gcpProjectId == "" || gcpZone == "" || gcpSubnet == "" {
+        t.Fatal("Missing required environment variables")
+    }
+
+    testAccountNameAws := fmt.Sprintf("aa-tfa-%s", rName)
+    testAccountNameGcp := fmt.Sprintf("aa-tfa-gcp-%s", rName)
+    gwNameAws := fmt.Sprintf("aa-tfg-aws-%s", rName)
+    gwNameGcp := fmt.Sprintf("aa-tfg-gcp-%s", rName)
+
+    terraformOptions := &terraform.Options{
+        TerraformDir: "../../examples/aviatrix-data-sources-transit-gateways",
+        Vars: map[string]interface{}{
+            "account_name_aws": testAccountNameAws,
+            "account_name_gcp": testAccountNameGcp,
+            "aws_vpc_id":       awsVpcId,
+            "aws_region":       awsRegion,
+            "aws_subnet":       awsSubnet,
+            "gcp_project_id":   gcpProjectId,
+            "gcp_zone":         gcpZone,
+            "gcp_subnet":       gcpSubnet,
+            "gw_name_aws":      gwNameAws,
+            "gw_name_gcp":      gwNameGcp,
+            "gw_size_aws":      "t2.micro",
 			"gw_size_gcp":      "n1-standard-1",
 		},
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccDataSourceAviatrixCallerIdentity_basic(t *testing.T) {
@@ -31,17 +32,14 @@ func TestAccDataSourceAviatrixCallerIdentity_basic(t *testing.T) {
 
 	terraform.InitAndApply(t, terraformOptions)
 
-	resourceState := terraform.OutputAll(t, terraformOptions, resourceName)
+	resourceState := terraform.OutputAll(t, terraformOptions)
 
 	client := aviatrixClientFromResourceState(t, resourceState)
 
 	version, _, err := client.GetCurrentVersion()
-	if err != nil {
-		t.Fatalf("valid CID was not returned. Get version API gave the following Error: %v", err)
-	}
-	if !strings.Contains(version, ".") {
-		t.Fatalf("valid CID was not returned. Get version API gave the wrong version")
-	}
+	assert.NoError(t, err)
+	assert.Contains(t, version, ".")
+
 }
 
 func configureTerraformOptions(rName string) (*terraform.Options, error) {
@@ -53,10 +51,10 @@ func configureTerraformOptions(rName string) (*terraform.Options, error) {
 	terraformOptions := &terraform.Options{
 		TerraformDir: "../examples/",
 		Vars: map[string]interface{}{
-			"aws_region":         awsRegion,
-			"aws_account_number": awsAccountNumber,
-			"aws_access_key":     awsAccessKey,
-			"aws_secret_key":     awsSecretKey,
+			 "aws_region":         awsRegion,
+			 "aws_account_number": awsAccountNumber,
+			 "aws_access_key":     awsAccessKey,
+			 "aws_secret_key":     awsSecretKey,
 		},
 	}
 
@@ -65,15 +63,11 @@ func configureTerraformOptions(rName string) (*terraform.Options, error) {
 
 func aviatrixClientFromResourceState(t *testing.T, resourceState map[string]interface{}) *goaviatrix.Client {
 	cid, ok := resourceState["cid"].(string)
-	if !ok {
-		t.Fatalf("Expected to get CID from resource state but did not get it: %v", resourceState)
-	}
+	assert.True(t, ok, fmt.Sprintf("Expected to get CID from resource state but did not get it: %v", resourceState))
 
 	client := goaviatrix.NewClient(cid, "")
 	err := client.Login()
-	if err != nil {
-		t.Fatalf("Failed to authenticate to Aviatrix Controller: %v", err)
-	}
-
+	assert.NoError(t, err, "Failed to authenticate to Aviatrix Controller")
+	
 	return client
 }

@@ -1,8 +1,6 @@
-package aviatrix
+package aviatrix_test
 
 import (
-	"fmt"
-	"os"
 	"testing"
 
 	"github.com/gruntwork-io/terratest/modules/acctest"
@@ -11,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestAccDataSourceAviatrixFirewallInstanceImages_basic(t *testing.T) {
+func TestAviatrixFirewallInstanceImagesDataSource_basic(t *testing.T) {
 	t.Parallel()
 
 	// Generate a random name to avoid naming conflicts
@@ -41,11 +39,11 @@ func TestAccDataSourceAviatrixFirewallInstanceImages_basic(t *testing.T) {
 	terraform.InitAndApply(t, terraformOptions)
 
 	// Check that the data source is accessible and has the expected values
-	data := terraform.OutputAll(t, terraformOptions, "aviatrix_firewall_instance_images_foo")
-	assert.NotEmpty(t, data["firewall_images.0.firewall_image"])
+	output := terraform.Output(t, terraformOptions, "firewall_images")
+	assert.NotEmpty(t, output)
 }
 
-func TestAccDataSourceAviatrixFirewallInstanceImages_fail(t *testing.T) {
+func TestAviatrixFirewallInstanceImagesDataSource_fail(t *testing.T) {
 	t.Parallel()
 
 	// Generate a random name to avoid naming conflicts
@@ -76,7 +74,6 @@ func TestAccDataSourceAviatrixFirewallInstanceImages_fail(t *testing.T) {
 	assert.Error(t, err)
 
 	// Verify that the data source does not exist
-	dataSourceName := "data.aviatrix_firewall_instance_images.foo"
-	resourceState := terraform.GetResourceState(t, terraformOptions, dataSourceName)
-	assert.Nil(t, resourceState)
+	output := terraform.Output(t, terraformOptions, "firewall_images")
+	assert.Empty(t, output)
 }
