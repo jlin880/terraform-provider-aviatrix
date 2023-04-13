@@ -1,13 +1,11 @@
-package aviatrix_test
+package aviatrix
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/stretchr/testify/assert"
@@ -51,10 +49,10 @@ func configureTerraformOptions(rName string) (*terraform.Options, error) {
 	terraformOptions := &terraform.Options{
 		TerraformDir: "../examples/",
 		Vars: map[string]interface{}{
-			 "aws_region":         awsRegion,
-			 "aws_account_number": awsAccountNumber,
-			 "aws_access_key":     awsAccessKey,
-			 "aws_secret_key":     awsSecretKey,
+			"aws_region":         awsRegion,
+			"aws_account_number": awsAccountNumber,
+			"aws_access_key":     awsAccessKey,
+			"aws_secret_key":     awsSecretKey,
 		},
 	}
 
@@ -68,6 +66,6 @@ func aviatrixClientFromResourceState(t *testing.T, resourceState map[string]inte
 	client := goaviatrix.NewClient(cid, "")
 	err := client.Login()
 	assert.NoError(t, err, "Failed to authenticate to Aviatrix Controller")
-	
+
 	return client
 }

@@ -1,4 +1,4 @@
-package test
+package aviatrix
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -102,4 +103,3 @@ func testAccCheckVPNProfileDestroy(t *testing.T, terraformOptions *terraform.Opt
 	_, err := client.GetProfile(foundVPNProfile)
 	assert.EqualError(t, err, goaviatrix.ErrNotFound.Error(), "VPN Profile still exists")
 }
-

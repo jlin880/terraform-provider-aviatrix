@@ -1,4 +1,4 @@
-package test
+package aviatrix
 
 import (
 	"fmt"
@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/avianto/go-metro"
-	"github.com/avianto/go-metro/execution"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+
 	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -23,10 +24,10 @@ func TestAccAviatrixAwsTgwNetworkDomain_basic(t *testing.T) {
 	terraformOptions := &terraform.Options{
 		TerraformDir: "../examples/aws-tgw-network-domain",
 		Vars: map[string]interface{}{
-			"prefix":            rName,
-			"tgw_name":          tgwName,
+			"prefix":             rName,
+			"tgw_name":           tgwName,
 			"aws_side_as_number": awsSideAsNumber,
-			"nd_name":           ndName,
+			"nd_name":            ndName,
 			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
 			"aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
 			"aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
@@ -63,7 +64,6 @@ func TestAccAviatrixAwsTgwNetworkDomain_basic(t *testing.T) {
 	assert.Equal(t, nd.Name, ndName)
 	assert.Equal(t, nd.AwsTgwName, tgwName)
 }
-
 
 func testAccAwsTgwNetworkDomainBasic(rName string, tgwName string, awsSideAsNumber string, ndName string) string {
 	return fmt.Sprintf(`

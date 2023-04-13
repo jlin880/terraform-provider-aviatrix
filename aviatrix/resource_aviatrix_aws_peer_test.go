@@ -1,14 +1,14 @@
-package aviatrix_test
+package aviatrix
 
 import (
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
-	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -69,7 +69,6 @@ func TestAviatrixAWSPeer_basic(t *testing.T) {
 	assert.Equal(t, terraformOptions.Vars["vpc_reg1"].(string), awsPeer.VpcReg1)
 	assert.Equal(t, terraformOptions.Vars["vpc_reg2"].(string), awsPeer.VpcReg2)
 }
-
 
 func testAccAWSPeerConfigBasic(rInt int, vpcID1 string, vpcID2 string, region1 string, region2 string) string {
 	return fmt.Sprintf(`
