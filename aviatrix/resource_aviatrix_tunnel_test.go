@@ -1,89 +1,90 @@
-package test
+package aviatrix
 
 import (
-    "fmt"
-    "os"
-    "testing"
+	"context"
+	"fmt"
+	"os"
+	"testing"
 
-    "github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-    "github.com/gruntwork-io/terratest/modules/acctest"
-    "github.com/gruntwork-io/terratest/modules/random"
-    "github.com/gruntwork-io/terratest/modules/terraform"
-    "github.com/stretchr/testify/assert"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/stretchr/testify/assert"
 )
 
 func preGateway2Check(t *testing.T, msgCommon string) {
-    preAccountCheck(t, msgCommon)
+	preAccountCheck(t, msgCommon)
 
-    vpcID2 := os.Getenv("AWS_VPC_ID2")
-    if vpcID2 == "" {
-        t.Fatal("Environment variable AWS_VPC_ID2 is not set" + msgCommon)
-    }
+	vpcID2 := os.Getenv("AWS_VPC_ID2")
+	if vpcID2 == "" {
+		t.Fatal("Environment variable AWS_VPC_ID2 is not set" + msgCommon)
+	}
 
-    region2 := os.Getenv("AWS_REGION2")
-    if region2 == "" {
-        t.Fatal("Environment variable AWS_REGION2 is not set" + msgCommon)
-    }
+	region2 := os.Getenv("AWS_REGION2")
+	if region2 == "" {
+		t.Fatal("Environment variable AWS_REGION2 is not set" + msgCommon)
+	}
 
-    vpcNet2 := os.Getenv("AWS_SUBNET2")
-    if vpcNet2 == "" {
-        t.Fatal("Environment variable AWS_SUBNET2 is not set" + msgCommon)
-    }
+	vpcNet2 := os.Getenv("AWS_SUBNET2")
+	if vpcNet2 == "" {
+		t.Fatal("Environment variable AWS_SUBNET2 is not set" + msgCommon)
+	}
 }
 
 func preAvxTunnelCheck(t *testing.T, msgCommon string) {
-    preGatewayCheck(t, msgCommon)
-    preGateway2Check(t, msgCommon)
+	preGatewayCheck(t, msgCommon)
+	preGateway2Check(t, msgCommon)
 }
 
 func TestAccAviatrixTunnel_basic(t *testing.T) {
-    ctx := context.Background()
+	ctx := context.Background()
 
-    // Set the variables that we will use in the Terraform code.
-    rName := random.UniqueId()
-    vpcID1 := os.Getenv("AWS_VPC_ID")
-    region1 := os.Getenv("AWS_REGION")
-    subnet1 := os.Getenv("AWS_SUBNET")
-    vpcID2 := os.Getenv("AWS_VPC_ID2")
-    region2 := os.Getenv("AWS_REGION2")
-    subnet2 := os.Getenv("AWS_SUBNET2")
+	// Set the variables that we will use in the Terraform code.
+	rName := random.UniqueId()
+	vpcID1 := os.Getenv("AWS_VPC_ID")
+	region1 := os.Getenv("AWS_REGION")
+	subnet1 := os.Getenv("AWS_SUBNET")
+	vpcID2 := os.Getenv("AWS_VPC_ID2")
+	region2 := os.Getenv("AWS_REGION2")
+	subnet2 := os.Getenv("AWS_SUBNET2")
 
-    // Create the Terraform options.
-    terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
-        TerraformDir: "../path/to/terraform/code",
-        Vars: map[string]interface{}{
-            "account_name":       fmt.Sprintf("tfa-%s", rName),
-            "cloud_type":         1,
-            "aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
-            "aws_iam":            false,
-            "aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
-            "aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
-            "gw_name1":           fmt.Sprintf("tfg-%s", rName),
-            "vpc_id1":            vpcID1,
-            "vpc_reg1":           region1,
-            "gw_size1":           "t2.micro",
-            "subnet1":            subnet1,
-            "gw_name2":           fmt.Sprintf("tfg2-%s", rName),
-            "vpc_id2":            vpcID2,
-            "vpc_reg2":           region2,
-            "gw_size2":           "t2.micro",
-            "subnet2":            subnet2,
-        },
-    })
+	// Create the Terraform options.
+	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+		TerraformDir: "../path/to/terraform/code",
+		Vars: map[string]interface{}{
+			"account_name":       fmt.Sprintf("tfa-%s", rName),
+			"cloud_type":         1,
+			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_iam":            false,
+			"aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
+			"gw_name1":           fmt.Sprintf("tfg-%s", rName),
+			"vpc_id1":            vpcID1,
+			"vpc_reg1":           region1,
+			"gw_size1":           "t2.micro",
+			"subnet1":            subnet1,
+			"gw_name2":           fmt.Sprintf("tfg2-%s", rName),
+			"vpc_id2":            vpcID2,
+			"vpc_reg2":           region2,
+			"gw_size2":           "t2.micro",
+			"subnet2":            subnet2,
+		},
+	})
 
-    // Clean up resources at the end of the test.
-    defer terraform.Destroy(t, terraformOptions)
+	// Clean up resources at the end of the test.
+	defer terraform.Destroy(t, terraformOptions)
 
-    // Deploy the Terraform code.
-    terraform.InitAndApply(t, terraformOptions)
+	// Deploy the Terraform code.
+	terraform.InitAndApply(t, terraformOptions)
 
-    // Verify that the tunnel was created.
-    tunnel := &goaviatrix.Tunnel{
-        VpcName1: fmt.Sprintf("tfg-%s", rName),
-        VpcName2: fmt.Sprintf("tfg2-%s", rName),
-    }
-    err := aviatrixClient.GetTunnel(tunnel)
-    assert.NoError(t, err)
+	// Verify that the tunnel was created.
+	tunnel := &goaviatrix.Tunnel{
+		VpcName1: fmt.Sprintf("tfg-%s", rName),
+		VpcName2: fmt.Sprintf("tfg2-%s", rName),
+	}
+	err := aviatrixClient.GetTunnel(tunnel)
+	assert.NoError(t, err)
 }
 func testAccTunnelConfigBasic(rName string, vpcID1 string, vpcID2 string, region1 string, region2 string,
 	subnet1 string, subnet2 string) string {

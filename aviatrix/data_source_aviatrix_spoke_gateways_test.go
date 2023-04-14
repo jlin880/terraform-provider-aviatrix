@@ -1,4 +1,4 @@
-package test
+package aviatrix
 
 import (
 	"fmt"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 )
 
 func TestAccDataSourceAviatrixSpokeGateways_basic(t *testing.T) {
@@ -22,7 +23,7 @@ func TestAccDataSourceAviatrixSpokeGateways_basic(t *testing.T) {
 		TerraformDir: "../examples/data-sources/aviatrix_spoke_gateways",
 		Upgrade:      true,
 		Vars: map[string]interface{}{
-			"rname": rName,
+			"rname":              rName,
 			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
 			"aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
 			"aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
@@ -39,11 +40,11 @@ func TestAccDataSourceAviatrixSpokeGateways_basic(t *testing.T) {
 	gwName := terraform.Output(t, terraformOptions, "gw_name")
 
 	expected := map[string]interface{}{
-		"gateway_list.#":      "1",
+		"gateway_list.#":         "1",
 		"gateway_list.0.gw_name": fmt.Sprintf("aa-tfg-aws-%s", rName),
-		"gateway_list.0.vpc_id":   os.Getenv("AWS_VPC_ID"),
-		"gateway_list.0.vpc_reg":  os.Getenv("AWS_REGION"),
-		"gateway_list.0.gw_size":  "t2.micro",
+		"gateway_list.0.vpc_id":  os.Getenv("AWS_VPC_ID"),
+		"gateway_list.0.vpc_reg": os.Getenv("AWS_REGION"),
+		"gateway_list.0.gw_size": "t2.micro",
 	}
 
 	terraform.OutputStruct(t, terraformOptions, "foo", &expected)
@@ -52,7 +53,6 @@ func TestAccDataSourceAviatrixSpokeGateways_basic(t *testing.T) {
 		t.Errorf("Expected gateway name %s but got %s", expected["gateway_list.0.gw_name"], gwName)
 	}
 }
-
 
 func testAccDataSourceAviatrixSpokeGatewaysConfigBasic(rName string) string {
 	return fmt.Sprintf(`

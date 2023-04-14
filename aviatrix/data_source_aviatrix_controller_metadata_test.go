@@ -1,4 +1,4 @@
-package aviatrix_test
+package aviatrix
 
 import (
 	"fmt"
@@ -67,8 +67,8 @@ func TestAccDataSourceAviatrixControllerMetadata(t *testing.T) {
 
 func testAccDataSourceAviatrixControllerMetadata(name string) terraform.ResourceCheck {
 	return terraform.ResourceCheck{
-		Name: name,
-		Exists: true,
+		Name:           name,
+		Exists:         true,
 		ExpectedOutput: "metadata",
 	}
 }

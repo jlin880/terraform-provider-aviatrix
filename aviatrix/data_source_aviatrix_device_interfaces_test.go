@@ -1,4 +1,4 @@
-package aviatrix_test
+package aviatrix
 
 import (
 	"fmt"
@@ -9,7 +9,8 @@ import (
 
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
-	"github.com/gruntwork-io/terratest/modules/terraform/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform/helper/resource"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -87,8 +88,8 @@ func TestAccDataSourceAviatrixDeviceInterfaces(t *testing.T) {
 
 func testAccDataSourceAviatrixDeviceInterfaces(name string) terraform.ResourceCheck {
 	return terraform.ResourceCheck{
-		Name: name,
-		Exists: true,
+		Name:           name,
+		Exists:         true,
 		ExpectedOutput: "wan_primary_interface,wan_primary_interface_public_ip",
 	}
 }
