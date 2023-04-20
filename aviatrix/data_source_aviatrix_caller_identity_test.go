@@ -1,17 +1,17 @@
-package aviatrix
+package test
 
 import (
 	"fmt"
 	"os"
 	"testing"
 
-
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestAccDataSourceAviatrixCallerIdentity_basic(t *testing.T) {
+func TestAviatrixCallerIdentityDataSource(t *testing.T) {
 	t.Parallel()
 
 	rName := random.UniqueId()
@@ -23,9 +23,8 @@ func TestAccDataSourceAviatrixCallerIdentity_basic(t *testing.T) {
 	}
 
 	terraformOptions, err := configureTerraformOptions(rName)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
+
 	defer terraform.Destroy(t, terraformOptions)
 
 	terraform.InitAndApply(t, terraformOptions)
@@ -37,7 +36,6 @@ func TestAccDataSourceAviatrixCallerIdentity_basic(t *testing.T) {
 	version, _, err := client.GetCurrentVersion()
 	assert.NoError(t, err)
 	assert.Contains(t, version, ".")
-
 }
 
 func configureTerraformOptions(rName string) (*terraform.Options, error) {
@@ -59,8 +57,8 @@ func configureTerraformOptions(rName string) (*terraform.Options, error) {
 	return terraformOptions, nil
 }
 
-func aviatrixClientFromResourceState(t *testing.T, resourceState map[string]interface{}) *goaviatrix.Client {
-	cid, ok := resourceState["cid"].(string)
+func aviatrixClientFromResourceState(t *testing.T, resourceState *terraform.ResourceState) *goaviatrix.Client {
+	cid, ok := resourceState.Primary.Attributes["cid"]
 	assert.True(t, ok, fmt.Sprintf("Expected to get CID from resource state but did not get it: %v", resourceState))
 
 	client := goaviatrix.NewClient(cid, "")

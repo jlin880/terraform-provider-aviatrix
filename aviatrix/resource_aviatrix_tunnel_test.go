@@ -1,4 +1,6 @@
-package aviatrix
+go
+Copy code
+package test
 
 import (
 	"context"
@@ -6,11 +8,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 )
 
 func preGateway2Check(t *testing.T, msgCommon string) {
@@ -50,7 +52,7 @@ func TestAccAviatrixTunnel_basic(t *testing.T) {
 	subnet2 := os.Getenv("AWS_SUBNET2")
 
 	// Create the Terraform options.
-	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+	terraformOptions := &terraform.Options{
 		TerraformDir: "../path/to/terraform/code",
 		Vars: map[string]interface{}{
 			"account_name":       fmt.Sprintf("tfa-%s", rName),
@@ -70,7 +72,7 @@ func TestAccAviatrixTunnel_basic(t *testing.T) {
 			"gw_size2":           "t2.micro",
 			"subnet2":            subnet2,
 		},
-	})
+	}
 
 	// Clean up resources at the end of the test.
 	defer terraform.Destroy(t, terraformOptions)
@@ -79,11 +81,14 @@ func TestAccAviatrixTunnel_basic(t *testing.T) {
 	terraform.InitAndApply(t, terraformOptions)
 
 	// Verify that the tunnel was created.
+	aviatrixClient, err := goaviatrix.NewClient()
+	assert.NoError(t, err)
+
 	tunnel := &goaviatrix.Tunnel{
 		VpcName1: fmt.Sprintf("tfg-%s", rName),
 		VpcName2: fmt.Sprintf("tfg2-%s", rName),
 	}
-	err := aviatrixClient.GetTunnel(tunnel)
+	err = aviatrixClient.GetTunnel(tunnel)
 	assert.NoError(t, err)
 }
 func testAccTunnelConfigBasic(rName string, vpcID1 string, vpcID2 string, region1 string, region2 string,

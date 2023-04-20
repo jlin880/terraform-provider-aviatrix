@@ -1,4 +1,4 @@
-package aviatrix
+package test
 
 import (
 	"fmt"
@@ -6,39 +6,9 @@ import (
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/stretchr/testify/assert"
 )
-
-func TestAccDataSourceAviatrixCallerIdentity_basic(t *testing.T) {
-	t.Parallel()
-
-	rName := random.UniqueId()
-	resourceName := "data.aviatrix_caller_identity.foo"
-
-	skipAcc := os.Getenv("SKIP_DATA_CALLER_IDENTITY")
-	if skipAcc == "yes" {
-		t.Skip("Skipping Data Source Caller Identity test as SKIP_DATA_CALLER_IDENTITY is set")
-	}
-
-	terraformOptions, err := configureTerraformOptions(rName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer terraform.Destroy(t, terraformOptions)
-
-	terraform.InitAndApply(t, terraformOptions)
-
-	resourceState := terraform.OutputAll(t, terraformOptions)
-
-	client := aviatrixClientFromResourceState(t, resourceState)
-
-	version, _, err := client.GetCurrentVersion()
-	assert.NoError(t, err)
-	assert.Contains(t, version, ".")
-
-}
 
 func configureTerraformOptions(rName string) (*terraform.Options, error) {
 	awsRegion := os.Getenv("AWS_REGION")

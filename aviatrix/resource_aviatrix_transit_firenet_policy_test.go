@@ -1,31 +1,85 @@
-package aviatrix
+package test
 
 import (
-	"fmt"
-	"os"
-	"testing"
+    "context"
+    "fmt"
+    "os"
+    "testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+    "github.com/Azure/go-autorest/autorest/azure/auth"
+    "github.com/gruntwork-io/terratest/modules/random"
+    "github.com/gruntwork-io/terratest/modules/terraform"
 )
 
-func TestAccAviatrixTransitFireNetPolicy_basic(t *testing.T) {
-	var transitFireNetPolicy goaviatrix.TransitFireNetPolicy
+func TestTransitFireNetPolicy(t *testing.T) {
+    t.Parallel()
 
-	rName := acctest.RandString(5)
+    skipAcc := os.Getenv("SKIP_TRANSIT_FIRENET_POLICY")
+    if skipAcc == "yes" {
+        t.Skip("Skipping transit firenet policy tests as 'SKIP_TRANSIT_FIRENET_POLICY' is set")
+    }
 
-	skipAcc := os.Getenv("SKIP_TRANSIT_FIRENET_POLICY")
-	if skipAcc == "yes" {
-		t.Skip("Skipping transit firenet policy tests as 'SKIP_TRANSIT_FIRENET_POLICY' is set")
-	}
+    skipAccAWS := os.Getenv("SKIP_TRANSIT_FIRENET_POLICY_AWS")
+    skipAccAZURE := os.Getenv("SKIP_TRANSIT_FIRENET_POLICY_AZURE")
+    if skipAcc == "yes" && skipAccAWS == "yes" && skipAccAZURE == "yes" {
+        t.Skip("Skipping transit firenet policy tests as 'SKIP_TRANSIT_FIRENET_POLICY_AWS' and 'SKIP_TRANSIT_FIRENET_POLICY_AZURE' are all set")
+    }
 
-	skipAccAWS := os.Getenv("SKIP_TRANSIT_FIRENET_POLICY_AWS")
-	skipAccAZURE := os.Getenv("SKIP_TRANSIT_FIRENET_POLICY_AZURE")
-	if skipAcc == "yes" && skipAccAWS == "yes" && skipAccAZURE == "yes" {
-		t.Skip("Skipping transit firenet policy tests as 'SKIP_TRANSIT_FIRENET_POLICY_AWS' and 'SKIP_TRANSIT_FIRENET_POLICY_AZURE' are all set")
-	}
+    var terraformOptions *terraform.Options
+
+    if skipAccAWS != "yes" {
+        terraformOptions = configureTransitFireNetPolicy(t, "aws")
+        defer terraform.Destroy(t, terraformOptions)
+
+        terraform.InitAndApply(t, terraformOptions)
+
+        validateTransitFireNetPolicy(t, terraformOptions)
+    } else {
+        t.Log("Skipping transit firenet policy tests in AWS as 'SKIP_TRANSIT_FIRENET_POLICY_AWS' is set")
+    }
+
+    if skipAccAZURE != "yes" {
+        terraformOptions = configureTransitFireNetPolicy(t, "azure")
+        defer terraform.Destroy(t, terraformOptions)
+
+        terraform.InitAndApply(t, terraformOptions)
+
+        validateTransitFireNetPolicy(t, terraformOptions)
+    } else {
+        t.Log("Skipping transit firenet policy tests in Azure as 'SKIP_TRANSIT_FIRENET_POLICY_AZURE' is set")
+    }
+}
+
+func configureTransitFireNetPolicy(t *testing.T, cloudType string) *terraform.Options {
+    uniqueID := random.UniqueId()
+
+    terraformOptions := &terraform.Options{
+        TerraformDir: "../path/to/terraform/module",
+        Vars: map[string]interface{}{
+            "account_name": fmt.Sprintf("tfa-%s", uniqueID),
+            "cloud_type":   cloudType,
+        },
+    }
+
+    if cloudType == "aws" {
+        subscriptionID := os.Getenv("ARM_SUBSCRIPTION_ID")
+        tenantID := os.Getenv("ARM_TENANT_ID")
+        clientID := os.Getenv("ARM_CLIENT_ID")
+        clientSecret := os.Getenv("ARM_CLIENT_SECRET")
+        region := os.Getenv("AWS_REGION")
+        vpcID := os.Getenv("AWS_VPC_ID")
+        subnetID := os.Getenv("AWS_SUBNET")
+
+        terraformOptions.Vars["aws_account_number"] = os.Getenv("AWS_ACCOUNT_NUMBER")
+        terraformOptions.Vars["aws_iam"] = false
+        terraformOptions.Vars["aws_access_key"] = os.Getenv("AWS_ACCESS_KEY")
+        terraformOptions.Vars["aws_secret_key"] = os.Getenv("AWS_SECRET_KEY")
+        terraformOptions.Vars["gw_name"] = fmt.Sprintf("tfg-%s", uniqueID)
+        terraformOptions.Vars["vpc_id"] = vpcID
+        terraformOptions.Vars["vpc_reg"] = region
+        terraformOptions.Vars["gw_size"] = "c5.xlarge"
+        terraformOptions
+
 
 	if skipAccAWS != "yes" {
 		resourceName := "aviatrix_transit_firenet_policy.test"

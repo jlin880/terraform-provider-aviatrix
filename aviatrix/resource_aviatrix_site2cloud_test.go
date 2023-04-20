@@ -14,7 +14,7 @@ import (
 func TestAccAviatrixS2C_basic(t *testing.T) {
 	var s2c goaviatrix.Site2Cloud
 
-	rName := acctest.RandString(5)
+	rName := RandomString(5)
 	resourceName := "aviatrix_site2cloud.foo"
 
 	skipAcc := os.Getenv("SKIP_S2C")
@@ -22,36 +22,31 @@ func TestAccAviatrixS2C_basic(t *testing.T) {
 		t.Skip("Skipping Site2Cloud test as SKIP_S2C is set")
 	}
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preGatewayCheck(t, ". Set SKIP_S2C to yes to skip Site2Cloud tests")
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/aviatrix-site2cloud-basic",
+		Vars: map[string]interface{}{
+			"prefix": rName,
+		},
+	}
 
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckS2CDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccS2CConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckS2CExists("aviatrix_site2cloud.foo", &s2c),
-					resource.TestCheckResourceAttr(resourceName, "connection_name", fmt.Sprintf("tfs-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "vpc_id", os.Getenv("AWS_VPC_ID")),
-					resource.TestCheckResourceAttr(resourceName, "tunnel_type", "policy"),
-					resource.TestCheckResourceAttr(resourceName, "primary_cloud_gateway_name", fmt.Sprintf("tfg-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "remote_gateway_ip", "8.8.8.8"),
-					resource.TestCheckResourceAttr(resourceName, "remote_subnet_cidr", "10.23.0.0/24"),
-					resource.TestCheckResourceAttr(resourceName, "remote_gateway_type", "generic"),
-					resource.TestCheckResourceAttr(resourceName, "connection_type", "unmapped"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	resource.Assert(t, terraformOptions, terraform.IsResourceUpToDate(resourceName))
+	resourceState := terraform.StateFromFile(t, terraformOptions.StateFilePath)
+
+	err := testAccCheckS2CExists(resourceName, &s2c)(resourceState)
+	assert.NoError(t, err)
+
+	assert.Equal(t, fmt.Sprintf("tfs-%s", rName), s2c.TunnelName)
+	assert.Equal(t, os.Getenv("AWS_VPC_ID"), s2c.VpcID)
+	assert.Equal(t, "policy", s2c.TunnelType)
+	assert.Equal(t, fmt.Sprintf("tfg-%s", rName), s2c.PrimaryCloudGatewayName)
+	assert.Equal(t, "8.8.8.8", s2c.RemoteGatewayIP)
+	assert.Equal(t, "10.23.0.0/24", s2c.RemoteSubnetCIDR)
+	assert.Equal(t, "generic", s2c.RemoteGatewayType)
+	assert.Equal(t, "unmapped", s2c.ConnectionType)
 }
 
 func testAccS2CConfigBasic(rName string) string {

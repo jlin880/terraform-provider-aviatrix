@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
@@ -17,23 +17,27 @@ func TestAccAviatrixAwsGuardDuty_basic(t *testing.T) {
 		t.Skip("Skipping AWS GuardDuty test as SKIP_AWS_GUARD_DUTY is set")
 	}
 
-	terraformOptions := &terraform.Options{
+	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
 		TerraformDir: "./path/to/terraform/directory",
 		Vars: map[string]interface{}{
 			"account_name": fmt.Sprintf("tf-testing-%s", random.UniqueId()),
 			"region":       "us-west-1",
+			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_iam":            "false",
+			"aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
 		},
-	}
+	})
 
 	defer terraform.Destroy(t, terraformOptions)
 
 	terraform.InitAndApply(t, terraformOptions)
 
-	resourceState := terraform.Show(t, terraformOptions, "-json")
+	resourceState := terraform.Show(t, terraformOptions)
 	accountName := terraformOptions.Vars["account_name"].(string)
 
-	assert.Equal(t, accountName, resourceState.Primary.Attributes["account_name"])
-	assert.Equal(t, "us-west-1", resourceState.Primary.Attributes["region"])
+	assert.Equal(t, accountName, resourceState["account_name"])
+	assert.Equal(t, "us-west-1", resourceState["region"])
 }
 
 func testAccAwsGuardDutyBasic(rName string) string {
@@ -46,6 +50,7 @@ resource "aviatrix_account" "test_acc" {
 	aws_access_key     = "%s"
 	aws_secret_key     = "%s"
 }
+
 resource "aviatrix_aws_guard_duty" "test_aws_guard_duty" {
 	account_name = aviatrix_account.test_acc.account_name
 	region = "us-west-1"

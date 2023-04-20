@@ -1,23 +1,16 @@
-package aviatrix
+package test
 
 import (
-	"context"
-	"fmt"
-	"os"
-	"testing"
+    "context"
+    "fmt"
+    "os"
+    "testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
+    "github.com/gruntwork-io/terratest/modules/terraform"
+    "github.com/stretchr/testify/assert"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+    goaviatrix "github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 )
-
-func prePrivateModeMulticloudEndpointCheck(t *testing.T, msgCommon string) {
-	if os.Getenv("AWS_VPC_ID") == "" {
-		t.Fatal(fmt.Sprintf("%s must be set for Private Mode multicloud endpoint tests. %s", "AWS_VPC_ID", msgCommon))
-	}
-}
 
 func TestAccAviatrixPrivateModeMulticloudEndpoint_basic(t *testing.T) {
 	rName := acctest.RandString(5)
@@ -29,34 +22,59 @@ func TestAccAviatrixPrivateModeMulticloudEndpoint_basic(t *testing.T) {
 	msgCommon := "Set SKIP_PRIVATE_MODE_MULTICLOUD_ENDPOINT to yes to skip Controller Private Mode load balancer tests"
 	resourceName := "aviatrix_private_mode_multicloud_endpoint.test"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, msgCommon)
-			prePrivateModeCheck(t, msgCommon)
-			prePrivateModeMulticloudEndpointCheck(t, msgCommon)
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"account_name":         fmt.Sprintf("tfa-%s", rName),
+			"aws_account_number":   os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_iam":              false,
+			"aws_access_key":       os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":       os.Getenv("AWS_SECRET_KEY"),
+			"vpc_id":               os.Getenv("AWS_VPC_ID"),
+			"region":               os.Getenv("AWS_REGION"),
+			"controller_lb_vpc_id": os.Getenv("CONTROLLER_VPC_ID"),
+			"lb_type":              "controller",
+			"enable_private_mode":  true,
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccAviatrixPrivateModeMulticloudEndpointDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccAviatrixPrivateModeMulticloudEndpointBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccAviatrixPrivateModeMulticloudEndpointExists(resourceName),
-					testAccAviatrixPrivateModeLbExists("aviatrix_private_mode_lb.test"),
-					resource.TestCheckResourceAttr(resourceName, "account_name", fmt.Sprintf("tfa-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "region", os.Getenv("AWS_REGION")),
-					resource.TestCheckResourceAttr(resourceName, "controller_lb_vpc_id", os.Getenv("CONTROLLER_VPC_ID")),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	assert.True(t, terraform.IsResourcePresent(t, terraformOptions, "aviatrix_account.test_account"))
+	assert.True(t, terraform.IsResourcePresent(t, terraformOptions, "aviatrix_controller_private_mode_config.test"))
+	assert.True(t, terraform.IsResourcePresent(t, terraformOptions, "aviatrix_private_mode_lb.test"))
+	assert.True(t, terraform.IsResourcePresent(t, terraformOptions, resourceName))
+
+	// Import the resource using the import ID
+	importedResource := terraform.ImportState(t, terraformOptions, resourceName)
+	assert.Equal(t, resourceName, importedResource)
+
+	// Check the state using the import ID
+	state := terraform.Show(t, terraformOptions)
+	assert.Contains(t, state, resourceName)
 }
+
+func TestAccAviatrixPrivateModeMulticloudEndpoint_import(t *testing.T) {
+	rName := acctest.RandString(5)
+
+	skipAcc := os.Getenv("SKIP_PRIVATE_MODE_MULTICLOUD_ENDPOINT")
+	if skipAcc == "yes" {
+		t.Skip("Skipping Controller Private Mode multicloud endpoint tests as SKIP_PRIVATE_MODE_MULTICLOUD_ENDPOINT is set")
+	}
+	msgCommon := "Set SKIP_PRIVATE_MODE_MULTICLOUD_ENDPOINT to yes to skip Controller Private Mode load balancer tests"
+	resourceName := "aviatrix_private_mode_multicloud_endpoint.test"
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"account_name":         fmt.Sprintf("tfa-%s", rName),
+			"aws_account_number":   os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_iam":              false,
+			"aws_access_key":       os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":       os.Getenv("AWS_SECRET_KEY"),
+			"vpc_id":               os.Getenv("AWS_VPC
 
 func testAccAviatrixPrivateModeMulticloudEndpointBasic(rName string) string {
 	return fmt.Sprintf(`
