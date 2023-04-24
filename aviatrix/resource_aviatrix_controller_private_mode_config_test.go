@@ -7,13 +7,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/profiles/latest/network/mgmt/network"
-	"github.com/gruntwork-io/terratest/modules/terraform"
-	"github.com/stretchr/testify/assert"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
+
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
 
 func TestAccAviatrixControllerPrivateModeConfig_basic(t *testing.T) {
-	rName := randomString(5)
+	rName := acctest.RandString(5)
 
 	skipAcc := os.Getenv("SKIP_CONTROLLER_PRIVATE_MODE_CONFIG")
 	if skipAcc == "yes" {
@@ -22,69 +24,74 @@ func TestAccAviatrixControllerPrivateModeConfig_basic(t *testing.T) {
 	msgCommon := ". Set SKIP_CONTROLLER_PRIVATE_MODE_CONFIG to yes to skip Controller Private Mode config tests"
 	resourceName := "aviatrix_controller_private_mode_config.test"
 
-	terraformOptions := &terraform.Options{
-		TerraformDir: "./",
-		Vars: map[string]interface{}{
-			"resource_name": rName,
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			preAccountCheck(t, msgCommon)
 		},
-	}
-
-	defer terraform.Destroy(t, terraformOptions)
-
-	terraform.InitAndApply(t, terraformOptions)
-
-	// Verify the resource exists
-	err := testAccControllerPrivateModeConfigExists(t, terraformOptions, resourceName)
-	assert.NoError(t, err)
-
-	// Import the resource
-	importedResourceName := "imported_controller_private_mode_config"
-	importedTerraformOptions := &terraform.Options{
-		TerraformDir: "./",
-		ImportState:  true,
-		// Set the ID to the controller IP
-		// Replace . with - in the controller IP since . is not a valid character in a Terraform resource name
-		State: fmt.Sprintf("aviatrix_controller_private_mode_config.test,%s\n", strings.Replace(getControllerIP(t), ".", "-", -1)),
-		// Use a different resource name to avoid conflicts
-		Vars: map[string]interface{}{
-			"resource_name": rName + "-imported",
+		Providers:    testAccProviders,
+		CheckDestroy: testAccControllerPrivateModeConfigDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccControllerPrivateModeConfigBasic(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccControllerPrivateModeConfigExists(resourceName),
+					resource.TestCheckResourceAttr(resourceName, "enable_private_mode", "true"),
+				),
+			},
+			{
+				ResourceName:      resourceName,
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
 		},
-	}
-
-	defer terraform.Destroy(t, importedTerraformOptions)
-
-	terraform.InitAndApply(t, importedTerraformOptions)
-
-	// Verify the imported resource exists
-	err = testAccControllerPrivateModeConfigExists(t, importedTerraformOptions, importedResourceName)
-	assert.NoError(t, err)
-}
-func testAccControllerPrivateModeConfigExists(t *testing.T, terraformOptions *terraform.Options) {
-    // retrieve the controller IP from the terraform output
-    controllerIP := terraform.Output(t, terraformOptions, "controller_ip")
-
-    client := testAccProvider.Meta().(*goaviatrix.Client)
-
-    // check if the controller private mode is enabled
-    info, err := client.GetPrivateModeInfo(context.Background())
-    assert.NoError(t, err)
-    assert.True(t, info.EnablePrivateMode, "controller private mode is not enabled")
-    assert.Equal(t, strings.Replace(controllerIP, ".", "-", -1), info.CID, "controller IP not matching with the CID")
+	})
 }
 
-func testAccControllerPrivateModeConfigDestroy(t *testing.T, terraformOptions *terraform.Options) {
-    // retrieve the controller IP from the terraform output
-    controllerIP := terraform.Output(t, terraformOptions, "controller_ip")
+func testAccControllerPrivateModeConfigBasic(rName string) string {
+	return `
+resource "aviatrix_controller_private_mode_config" "test" {
+	enable_private_mode = true
+}
+	`
+}
 
-    client := testAccProvider.Meta().(*goaviatrix.Client)
+func testAccControllerPrivateModeConfigExists(n string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[n]
+		if !ok {
+			return fmt.Errorf("controller private mode config Not found: %s", n)
+		}
+		if rs.Primary.ID == "" {
+			return fmt.Errorf("no controller private mode config ID is set")
+		}
 
-    // destroy the controller private mode configuration
-    terraform.Destroy(t, terraformOptions)
+		client := testAccProvider.Meta().(*goaviatrix.Client)
 
-    // check if the controller private mode is disabled
-    info, err := client.GetPrivateModeInfo(context.Background())
-    assert.NoError(t, err)
-    assert.False(t, info.EnablePrivateMode, "controller private mode is still enabled")
-    assert.Equal(t, "", info.CID, "controller CID is not empty")
-    assert.NotContains(t, info.PrivateIP, controllerIP, "controller IP not removed from private CIDR")
+		if strings.Replace(client.ControllerIP, ".", "-", -1) != rs.Primary.ID {
+			return fmt.Errorf("controller private mode config ID not found")
+		}
+
+		return nil
+	}
+}
+
+func testAccControllerPrivateModeConfigDestroy(s *terraform.State) error {
+	client := testAccProvider.Meta().(*goaviatrix.Client)
+
+	for _, rs := range s.RootModule().Resources {
+		if rs.Type != "aviatrix_controller_private_mode_config" {
+			continue
+		}
+
+		info, err := client.GetPrivateModeInfo(context.Background())
+		if err != nil {
+			return fmt.Errorf("could not retrieve controller private mode config")
+		}
+		if info.EnablePrivateMode {
+			return fmt.Errorf("controller private mode is still enabled")
+		}
+	}
+
+	return nil
 }

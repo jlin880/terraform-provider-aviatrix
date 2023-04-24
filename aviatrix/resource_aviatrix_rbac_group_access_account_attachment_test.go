@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
@@ -6,48 +6,82 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixRbacGroupAccessAccountAttachment_basic(t *testing.T) {
-	var rbacGroupAccessAccountAttachment goaviatrix.RbacGroupAccessAccountAttachment
+	t.Parallel()
 
-	rName := acctest.RandString(5)
+	rName := random.UniqueId()
+	groupName := fmt.Sprintf("tf-%s", rName)
+	accountName := fmt.Sprintf("tf-acc-%s", rName)
 
 	skipAcc := os.Getenv("SKIP_RBAC_GROUP_ACCESS_ACCOUNT_ATTACHMENT")
 	if skipAcc == "yes" {
 		t.Skip("Skipping rbac group access account attachment tests as SKIP_RBAC_GROUP_ACCESS_ACCOUNT_ATTACHMENT is set")
 	}
 
-	resourceName := "aviatrix_rbac_group_access_account_attachment.test"
-	msgCommon := ". Set SKIP_RBAC_GROUP_ACCESS_ACCOUNT_ATTACHMENT to yes to skip rbac group access account attachment tests"
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./path/to/terraform/dir",
+		Vars: map[string]interface{}{
+			"group_name":         groupName,
+			"access_account_name": accountName,
+			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
+			"cloud_type":         1,
+		},
+	}
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, msgCommon)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckRbacGroupAccessAccountAttachmentDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccRbacGroupAccessAccountAttachmentConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckRbacGroupAccessAccountAttachmentExists(resourceName, &rbacGroupAccessAccountAttachment),
-					resource.TestCheckResourceAttr(resourceName, "group_name", fmt.Sprintf("tf-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "access_account_name", fmt.Sprintf("tf-acc-%s", rName)),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Check that the resource was created correctly
+	client := goaviatrix.NewClient(goaviatrix.ClientConfig{
+		Username: os.Getenv("AVIATRIX_USERNAME"),
+		Password: os.Getenv("AVIATRIX_PASSWORD"),
+		APIURL:   os.Getenv("AVIATRIX_API_URL"),
 	})
+
+	rbacGroupAccessAccountAttachment := goaviatrix.RbacGroupAccessAccountAttachment{
+		GroupName:         groupName,
+		AccessAccountName: accountName,
+	}
+
+	foundAttachment, err := client.GetRbacGroupAccessAccountAttachment(&rbacGroupAccessAccountAttachment)
+	assert.NoError(t, err)
+	assert.Equal(t, groupName, foundAttachment.GroupName)
+	assert.Equal(t, accountName, foundAttachment.AccessAccountName)
+
+	// Test import
+	importedResourceName := "aviatrix_rbac_group_access_account_attachment.test"
+	resourceType := "aviatrix_rbac_group_access_account_attachment"
+	resourceID := fmt.Sprintf("%s:%s", groupName, accountName)
+
+	err = terraform.Import(t, terraformOptions, importedResourceName, resourceID)
+	assert.NoError(t, err)
+
+	err = terraform.Refresh(t, terraformOptions)
+	assert.NoError(t, err)
+
+	// Check that the imported resource was created correctly
+	foundAttachment, err = client.GetRbacGroupAccessAccountAttachment(&rbacGroupAccessAccountAttachment)
+	assert.NoError(t, err)
+	assert.Equal(t, groupName, foundAttachment.GroupName)
+	assert.Equal(t, accountName, foundAttachment.AccessAccountName)
+
+	// Check that the resource can be destroyed
+	terraform.Destroy(t, terraformOptions)
+
+	// Check that the resource was destroyed successfully
+	_, err = client.GetRbacGroupAccessAccountAttachment(&rbacGroupAccessAccountAttachment)
+	assert.Error(t, err)
+	assert.True(t, strings.Contains(err.Error(), "is invalid"), "Expected error to contain 'is invalid'")
 }
 
 func testAccRbacGroupAccessAccountAttachmentConfigBasic(rName string) string {

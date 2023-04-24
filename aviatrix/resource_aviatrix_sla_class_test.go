@@ -1,51 +1,63 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"context"
 	"fmt"
-	"os"
+	"strings"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/aviatrix"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/aviatrix/test"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixSLAClass_basic(t *testing.T) {
-	if os.Getenv("SKIP_SLA_CLASS") == "yes" {
-		t.Skip("Skipping sla class test as SKIP_SLA_CLASS is set")
-	}
+	t.Parallel()
+
+	testStage := fmt.Sprintf("acc-%s", strings.ToLower(random.UniqueId()))
+
+	terraformOptions := test.GetTerraformOptions(testStage, "../examples/sla_class_basic")
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
 
 	resourceName := "aviatrix_sla_class.test"
-	slaClassName := "sla-" + acctest.RandString(5)
+	slaClassName := fmt.Sprintf("sla-%s", strings.ToLower(random.UniqueId()))
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckSLAClassDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccSLAClassBasic(slaClassName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckSLAClassExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "name", slaClassName),
-					resource.TestCheckResourceAttr(resourceName, "latency", "43"),
-					resource.TestCheckResourceAttr(resourceName, "jitter", "1"),
-					resource.TestCheckResourceAttr(resourceName, "packet_drop_rate", "3"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	expectedSLAClass := aviatrix.SLAClass{
+		Name:           slaClassName,
+		Latency:        43,
+		Jitter:         1,
+		PacketDropRate: 3,
+	}
+
+	// Check the SLA Class resource exists
+	assert.NoError(t, test.WaitForResource(t, terraformOptions, resourceName))
+
+	actualSLAClass, err := aviatrix.GetSLAClass(context.Background(), terraformOptions, slaClassName)
+	assert.NoError(t, err)
+
+	// Check the SLA Class attributes are correct
+	assert.Equal(t, expectedSLAClass.Name, actualSLAClass.Name)
+	assert.Equal(t, expectedSLAClass.Latency, actualSLAClass.Latency)
+	assert.Equal(t, expectedSLAClass.Jitter, actualSLAClass.Jitter)
+	assert.Equal(t, expectedSLAClass.PacketDropRate, actualSLAClass.PacketDropRate)
+
+	// Import the SLA Class resource
+	importedResourceName := "imported-sla-class"
+	importedResource := terraform.ImportState(resourceName, importedResourceName, t, terraformOptions)
+	importedSLAClass, err := aviatrix.GetSLAClass(context.Background(), terraformOptions, slaClassName)
+	assert.NoError(t, err)
+
+	// Verify the imported SLA Class resource
+	assert.Equal(t, expectedSLAClass.Name, importedSLAClass.Name)
+	assert.Equal(t, expectedSLAClass.Latency, importedSLAClass.Latency)
+	assert.Equal(t, expectedSLAClass.Jitter, importedSLAClass.Jitter)
+	assert.Equal(t, expectedSLAClass.PacketDropRate, importedSLAClass.PacketDropRate)
 }
+
 
 func testAccSLAClassBasic(slaClassName string) string {
 	return fmt.Sprintf(`
@@ -92,3 +104,4 @@ func testAccCheckSLAClassDestroy(s *terraform.State) error {
 
 	return nil
 }
+

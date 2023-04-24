@@ -11,27 +11,39 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
 
-func TestAccAviatrixFQDNPassThrough_basic(t *testing.T) {
-	if os.Getenv("SKIP_FQDN_PASS_THROUGH") == "yes" {
-		t.Skip("Skipping FQDN pass through test as SKIP_FQDN_PASS_THROUGH is set")
-	}
+func TestAccAviatrixFQDN_basic(t *testing.T) {
+	var fqdn goaviatrix.FQDN
 
 	rName := acctest.RandString(5)
-	resourceName := "aviatrix_fqdn_pass_through.test_fqdn_pass_through"
-	msg := ". Set SKIP_FQDN_PASS_THROUGH to yes to skip FQDN pass through tests."
+
+	skipAcc := os.Getenv("SKIP_FQDN")
+	if skipAcc == "yes" {
+		t.Skip("Skipping FQDN test as SKIP_FQDN is set")
+	}
+
+	resourceName := "aviatrix_fqdn.foo"
 
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
 			testAccPreCheck(t)
-			preGatewayCheck(t, msg)
+			preGatewayCheck(t, ". Set SKIP_FQDN to yes to skip FQDN tests")
 		},
 		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckFQDNPassThroughDestroy,
+		CheckDestroy: testAccCheckFQDNDestroy,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFQDNPassThroughBasic(rName),
+				Config: testAccFQDNConfigBasic(rName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckFQDNPassThroughExists(resourceName),
+					testAccCheckFQDNExists(resourceName, &fqdn),
+					resource.TestCheckResourceAttr(resourceName, "fqdn_tag", fmt.Sprintf("tff-%s", rName)),
+					resource.TestCheckResourceAttr(resourceName, "fqdn_enabled", "true"),
+					resource.TestCheckResourceAttr(resourceName, "fqdn_mode", "white"),
+					resource.TestCheckResourceAttr(resourceName, "gw_filter_tag_list.#", "1"),
+					resource.TestCheckResourceAttr(resourceName, "gw_filter_tag_list.0.gw_name", fmt.Sprintf("tfg-%s", rName)),
+					resource.TestCheckResourceAttr(resourceName, "domain_names.#", "1"),
+					resource.TestCheckResourceAttr(resourceName, "domain_names.0.fqdn", "facebook.com"),
+					resource.TestCheckResourceAttr(resourceName, "domain_names.0.proto", "tcp"),
+					resource.TestCheckResourceAttr(resourceName, "domain_names.0.port", "443"),
 				),
 			},
 			{
@@ -43,55 +55,38 @@ func TestAccAviatrixFQDNPassThrough_basic(t *testing.T) {
 	})
 }
 
-func testAccFQDNPassThroughBasic(rName string) string {
+func testAccFQDNConfigBasic(rName string) string {
 	return fmt.Sprintf(`
-resource "aviatrix_account" "test_acc_aws" {
-	account_name       = "tf-acc-aws-%s"
+resource "aviatrix_account" "test" {
+	account_name       = "tfa-%s"
 	cloud_type         = 1
 	aws_account_number = "%s"
 	aws_iam            = false
 	aws_access_key     = "%s"
 	aws_secret_key     = "%s"
 }
-
-resource "aviatrix_vpc" "test_vpc" {
-	cloud_type   = 1
-	account_name = aviatrix_account.test_acc_aws.account_name
-	region       = "%[5]s"
-	name         = "aws-vpc-%[1]s"
-	cidr         = "10.0.10.0/24"
-}
-
-data "aviatrix_vpc" "test_vpc" {
-	name = aviatrix_vpc.test_vpc.name
-}
-
-resource "aviatrix_gateway" "test_gw_aws" {
+resource "aviatrix_gateway" "test" {
 	cloud_type     = 1
-	account_name   = aviatrix_account.test_acc_aws.account_name
-	gw_name        = "tfg-aws-%[1]s"
-	vpc_id         = aviatrix_vpc.test_vpc.vpc_id
-	vpc_reg        = "%[5]s"
+	account_name   = aviatrix_account.test.account_name
+	gw_name        = "tfg-%[1]s"
+	vpc_id         = "%[5]s"
+	vpc_reg        = "%[6]s"
 	gw_size        = "t2.micro"
-	subnet         = data.aviatrix_vpc.test_vpc.public_subnets[0].cidr
+	subnet         = "%[7]s"
 	single_ip_snat = true
 }
-
-resource "aviatrix_fqdn" "test_fqdn" {
-	fqdn_tag     = "tag-%[1]s"
+resource "aviatrix_fqdn" "foo" {
+	fqdn_tag     = "tff-%[1]s"
 	fqdn_enabled = true
 	fqdn_mode    = "white"
 
 	gw_filter_tag_list {
-		gw_name        = aviatrix_gateway.test_gw_aws.gw_name
-		source_ip_list = [
-			"172.31.0.0/16",
-			"172.31.0.0/20",
-		]
+		gw_name        = aviatrix_gateway.test.gw_name
+		source_ip_list = []
 	}
 
 	domain_names {
-		fqdn   = "facebook.com"
+		fqdn  = "facebook.com"
 		proto  = "tcp"
 		port   = "443"
 		action = "Allow"

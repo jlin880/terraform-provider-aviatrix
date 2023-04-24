@@ -1,13 +1,14 @@
-package aviatrix
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixCloudwatchAgent_basic(t *testing.T) {
@@ -15,32 +16,78 @@ func TestAccAviatrixCloudwatchAgent_basic(t *testing.T) {
 		t.Skip("Skipping cloudwatch agent test as SKIP_CLOUDWATCH_AGENT is set")
 	}
 
+	terraformOptions := prepareCloudwatchAgentTest(t)
 	resourceName := "aviatrix_cloudwatch_agent.test_cloudwatch_agent"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckCloudwatchAgentDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccCloudwatchAgentBasic(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckCloudwatchAgentExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "cloudwatch_role_arn", "arn:aws:iam::469550033836:role/aviatrix-role-cloudwatch"),
-					resource.TestCheckResourceAttr(resourceName, "region", "us-east-1"),
-					testAccCheckCloudwatchAgentExcludedGatewaysMatch([]string{"a", "b"}),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	checkCloudwatchAgentResource(t, terraformOptions, resourceName)
+	importedResourceName := importCloudwatchAgentResource(t, terraformOptions, resourceName)
+
+	assert.Equal(t, resourceName, importedResourceName)
 }
+
+func prepareCloudwatchAgentTest(t *testing.T) *terraform.Options {
+	terraformDir := "../../examples/cloudwatch_agent"
+
+	region := "us-east-1"
+	excludedGateways := []string{"a", "b"}
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: terraformDir,
+		Vars: map[string]interface{}{
+			"cloudwatch_role_arn": "arn:aws:iam::469550033836:role/aviatrix-role-cloudwatch",
+			"region":              region,
+			"excluded_gateways":   excludedGateways,
+		},
+	}
+
+	return terraformOptions
+}
+
+func checkCloudwatchAgentResource(t *testing.T, terraformOptions *terraform.Options, resourceName string) {
+	client := testAccProvider.Meta().(*goaviatrix.Client)
+
+	resp, err := client.GetCloudwatchAgentStatus()
+	assert.NoError(t, err)
+	assert.True(t, resp.ExcludedGateways != nil)
+	assert.Equal(t, terraformOptions.Vars["region"], resp.Region)
+	assert.True(t, goaviatrix.Equivalent(resp.ExcludedGateways, terraformOptions.Vars["excluded_gateways"].([]string)))
+}
+
+func importCloudwatchAgentResource(t *testing.T, terraformOptions *terraform.Options, resourceName string) string {
+	client := testAccProvider.Meta().(*goaviatrix.Client)
+
+	resp, err := client.GetCloudwatchAgentStatus()
+	assert.NoError(t, err)
+
+	importedTerraformOptions := terraformOptions
+	importedTerraformOptions.ImportState = fmt.Sprintf(`{"excluded_gateways":["%v"],"cloudwatch_role_arn":"%v","region":"%v"}`,
+		resp.ExcludedGateways, terraformOptions.Vars["cloudwatch_role_arn"], resp.Region)
+	importedResourceName := terraform.Import(t, importedTerraformOptions, resourceName)
+
+	return importedResourceName
+}
+
+func TestAccAviatrixCloudwatchAgent_import(t *testing.T) {
+	if os.Getenv("SKIP_CLOUDWATCH_AGENT") == "yes" {
+		t.Skip("Skipping cloudwatch agent test as SKIP_CLOUDWATCH_AGENT is set")
+	}
+
+	terraformOptions := prepareCloudwatchAgentTest(t)
+	resourceName := "aviatrix_cloudwatch_agent.test_cloudwatch_agent"
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	importedResourceName := importCloudwatchAgentResource(t, terraformOptions, resourceName)
+
+	assert.Equal(t, resourceName, importedResourceName)
+}
+
 
 func testAccCloudwatchAgentBasic() string {
 	return `

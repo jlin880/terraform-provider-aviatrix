@@ -1,8 +1,6 @@
-package aviatrix
+package aviatrix_test
 
 import (
-	"fmt"
-	"os"
 	"testing"
 
 	"github.com/gruntwork-io/terratest/modules/random"
@@ -12,10 +10,6 @@ import (
 
 func TestTerraformAviatrixTrafficClassifier(t *testing.T) {
 	t.Parallel()
-
-	if os.Getenv("SKIP_TRAFFIC_CLASSIFIER") == "yes" {
-		t.Skip("Skipping traffic classifier test as SKIP_TRAFFIC_CLASSIFIER is set")
-	}
 
 	trafficClassifierName := "policy-" + random.UniqueId()
 	terraformOptions := &terraform.Options{
@@ -37,12 +31,7 @@ func TestTerraformAviatrixTrafficClassifier(t *testing.T) {
 
 	// Import the resource using the resource ID
 	importedResource := resourceName + "-imported"
-	importedTerraformOptions := &terraform.Options{
-		TerraformDir: ".",
-		Vars: map[string]interface{}{
-			"traffic_classifier_name": trafficClassifierName,
-		},
-	}
+	importedTerraformOptions := terraformOptions
 	importedTerraformOptions.ImportState = fmt.Sprintf("%s=%s", resourceName, terraform.Output(t, resourceName))
 	importedTerraformOptions.ImportStateVerify = true
 
@@ -54,10 +43,6 @@ func TestTerraformAviatrixTrafficClassifier(t *testing.T) {
 func TestTerraformAviatrixTrafficClassifier_import(t *testing.T) {
 	t.Parallel()
 
-	if os.Getenv("SKIP_TRAFFIC_CLASSIFIER") == "yes" {
-		t.Skip("Skipping traffic classifier test as SKIP_TRAFFIC_CLASSIFIER is set")
-	}
-
 	trafficClassifierName := "policy-" + random.UniqueId()
 	terraformOptions := &terraform.Options{
 		TerraformDir: ".",
@@ -78,12 +63,7 @@ func TestTerraformAviatrixTrafficClassifier_import(t *testing.T) {
 
 	// Import the resource using the resource ID
 	importedResource := resourceName + "-imported"
-	importedTerraformOptions := &terraform.Options{
-		TerraformDir: ".",
-		Vars: map[string]interface{}{
-			"traffic_classifier_name": trafficClassifierName,
-		},
-	}
+	importedTerraformOptions := terraformOptions
 	importedTerraformOptions.ImportState = fmt.Sprintf("%s=%s", resourceName, terraform.Output(t, resourceName))
 	importedTerraformOptions.ImportStateVerify = true
 

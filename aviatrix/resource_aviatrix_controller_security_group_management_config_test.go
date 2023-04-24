@@ -1,85 +1,89 @@
 package aviatrix
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/gruntwork-io/terratest/modules/random"
-	"github.com/gruntwork-io/terratest/modules/terraform"
-	"github.com/stretchr/testify/assert"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
-
-func TestAviatrixControllerSecurityGroupManagementConfig(t *testing.T) {
-	t.Parallel()
-
-	// Skip the test if the environment variable is set
-	if os.Getenv("SKIP_CONTROLLER_SECURITY_GROUP_MANAGEMENT_CONFIG") == "yes" {
-		t.Skip("Skipping Controller Config test as SKIP_CONTROLLER_SECURITY_GROUP_MANAGEMENT_CONFIG is set")
+func TestAccAviatrixCopilotSecurityGroupManagementConfig_basic(t *testing.T) {
+	if os.Getenv("SKIP_COPILOT_SECURITY_GROUP_MANAGEMENT_CONFIG") == "yes" {
+		t.Skip("Skipping copilot security group management config test as SKIP_COPILOT_SECURITY_GROUP_MANAGEMENT_CONFIG is set")
 	}
 
-	// Generate a random name to avoid naming conflicts
-	resourceName := fmt.Sprintf("aviatrix_controller_security_group_management_config.test-%s", random.UniqueId())
+	resourceName := "aviatrix_copilot_security_group_management_config.test"
+	rName := acctest.RandString(5)
 
-	terraformOptions := &terraform.Options{
-		TerraformDir: "../path/to/terraform/config/dir",
-		Vars: map[string]interface{}{
-			"account_name":       fmt.Sprintf("tfa-%s", random.UniqueId()),
-			"cloud_type":         1,
-			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
-			"aws_iam":            false,
-			"aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
-			"aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
-			"resource_name":      resourceName,
+	ctx := context.Background()
+	testAccProviderVersionValidation := testAccProvider
+
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
 		},
-	}
-
-	// Destroy the infrastructure after the test is finished
-	defer terraform.Destroy(t, terraformOptions)
-
-	// Create the infrastructure using Terraform
-	terraform.InitAndApply(t, terraformOptions)
-
-	// Check that the security group management config exists
-	checkControllerSecurityGroupManagementConfigExists(t, resourceName)
-
-	// Import the security group management config and verify it
-	terraform.Import(t, terraformOptions, resourceName)
-	checkControllerSecurityGroupManagementConfigExists(t, resourceName)
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckCopilotSecurityGroupManagementConfigDestroy(ctx, testAccProvider),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccCopilotSecurityGroupManagementConfigBasic(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckCopilotSecurityGroupManagementConfigExists(ctx, resourceName, testAccProvider),
+					resource.TestCheckResourceAttr(resourceName, "account_name", fmt.Sprintf("tfa-aws-%s", rName)),
+					resource.TestCheckResourceAttr(resourceName, "vpc_id", os.Getenv("AWS_VPC_ID")),
+					resource.TestCheckResourceAttr(resourceName, "region", os.Getenv("AWS_REGION")),
+				),
+			},
+			{
+				ResourceName:      resourceName,
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+		},
+	})
 }
 
-func checkControllerSecurityGroupManagementConfigExists(t *testing.T, resourceName string) {
-	client := goaviatrix.NewClient(os.Getenv("AVIATRIX_CONTROLLER_IP"), os.Getenv("AVIATRIX_USERNAME"), os.Getenv("AVIATRIX_PASSWORD"))
-	status, err := client.GetSecurityGroupManagementStatus()
-	assert.NoError(t, err)
+func testAccCheckCopilotSecurityGroupManagementConfigExists(ctx context.Context, resourceName string, provider *schema.Provider) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[resourceName]
+		if !ok {
+			return fmt.Errorf("could not find copilot security group management config: %s", resourceName)
+		}
+		if rs.Primary.ID == "" {
+			return fmt.Errorf("copilot security group management config id is not set")
+		}
 
-	// Verify that the security group management config is enabled
-	assert.False(t, status.EnableSecurityGroupManagement)
+		client := provider.Meta().(*goaviatrix.Client)
 
-	// Verify that the security group management config resource exists
-	rs, err := terraform.Show(t, terraformOptions, "aviatrix_controller_security_group_management_config.test")
-	assert.NoError(t, err)
-	assert.Equal(t, resourceName, rs.Primary.ID)
-
-	// Verify that the security group management config resource is associated with the correct controller
-	assert.Equal(t, strings.Replace(os.Getenv("AVIATRIX_CONTROLLER_IP"), ".", "-", -1), rs.Primary.ID)
+		if strings.Replace(client.ControllerIP, ".", "-", -1) != rs.Primary.ID {
+			return fmt.Errorf("could not find copilot security group management id")
+		}
+		return nil
+	}
 }
 
-func testAccCheckControllerSecurityGroupManagementConfigDestroy(s *terraform.State) error {
-	client := testAccProvider.Meta().(*goaviatrix.Client)
+func testAccCheckCopilotSecurityGroupManagementConfigDestroy(ctx context.Context, provider *schema.Provider) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		client := provider.Meta().(*goaviatrix.Client)
 
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_controller_security_group_management_config" {
-			continue
-		}
+		for _, rs := range s.RootModule().Resources {
+			if rs.Type != "aviatrix_copilot_security_group_management_config" {
+				continue
+			}
 
-		_, err := client.GetSecurityGroupManagementStatus()
-		if err != nil {
-			return fmt.Errorf("could not retrieve Controller Security Group Management Status due to err: %v", err)
+			copilotSecurityGroupManagementConfig, err := client.GetCopilotSecurityGroupManagementConfig(ctx)
+			if err != nil {
+				return fmt.Errorf("could not read copilot security group management config due to err: %v", err)
+			}
+			if copilotSecurityGroupManagementConfig.State == "Enabled" {
+				return fmt.Errorf("copilot security group management is still enabled")
+			}
 		}
+		return nil
 	}
-
-	return nil
 }

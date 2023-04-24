@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"context"
@@ -7,87 +7,80 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/Azure/azure-sdk-for-go/profiles/latest/network/mgmt/network"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestAccAviatrixControllerEmailExceptionNotificationConfig_basic(t *testing.T) {
-	skipAcc := os.Getenv("SKIP_CONTROLLER_EMAIL_EXCEPTION_NOTIFICATION_CONFIG")
-	if skipAcc == "yes" {
+func TestAviatrixControllerEmailExceptionNotificationConfig(t *testing.T) {
+	t.Parallel()
+
+	// Skip test if environment variable is set
+	if os.Getenv("SKIP_CONTROLLER_EMAIL_EXCEPTION_NOTIFICATION_CONFIG") == "yes" {
 		t.Skip("Skipping Controller Email Exception Notification Config test as SKIP_CONTROLLER_EMAIL_EXCEPTION_NOTIFICATION_CONFIG is set")
 	}
-	resourceName := "aviatrix_controller_email_exception_notification_config.test"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
+	terraformOptions := &terraform.Options{
+		// Set the path to the Terraform code directory
+		TerraformDir: "./terraform",
+
+		// A unique name for the test to avoid naming conflicts
+		// with resources that may already exist in the account
+		// or with previous runs of the test
+		Upgrade: true,
+		Vars: map[string]interface{}{
+			"resource_name": random.UniqueId(),
 		},
-		Providers:    testAccProvidersVersionValidation,
-		CheckDestroy: testAccCheckControllerEmailExceptionNotificationConfigDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccControllerEmailExceptionNotificationConfigBasic(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckControllerEmailExceptionNotificationExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "enable_email_exception_notification", "false"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
-}
-
-func testAccControllerEmailExceptionNotificationConfigBasic() string {
-	return `
-resource "aviatrix_controller_email_exception_notification_config" "test" {
-    enable_email_exception_notification = false
-}
-`
-}
-
-func testAccCheckControllerEmailExceptionNotificationExists(n string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[n]
-		if !ok {
-			return fmt.Errorf("controller email exception notification config ID Not found: %s", n)
-		}
-		if rs.Primary.ID == "" {
-			return fmt.Errorf("controller email exception notification config ID is not set")
-		}
-
-		client := testAccProviderVersionValidation.Meta().(*goaviatrix.Client)
-
-		_, err := client.GetEmailExceptionNotificationStatus(context.Background())
-		if err != nil {
-			return fmt.Errorf("failed to get email exception notification config status: %v", err)
-		}
-
-		if strings.Replace(client.ControllerIP, ".", "-", -1) != rs.Primary.ID {
-			return fmt.Errorf("controller email exception  notification config ID not found")
-		}
-
-		return nil
-	}
-}
-
-func testAccCheckControllerEmailExceptionNotificationConfigDestroy(s *terraform.State) error {
-	client := testAccProviderVersionValidation.Meta().(*goaviatrix.Client)
-
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_controller_email_exception_notification_config" {
-			continue
-		}
-
-		enableEmailExceptionNotification, _ := client.GetEmailExceptionNotificationStatus(context.Background())
-		if !enableEmailExceptionNotification {
-			return fmt.Errorf("controller email exception notification configured when it should be destroyed")
-		}
 	}
 
-	return nil
+	// Run Terraform commands to apply and destroy the resources
+	terraform.InitAndApply(t, terraformOptions)
+	defer terraform.Destroy(t, terraformOptions)
+
+	// Test that the resource was created successfully
+	controllerIP := terraform.Output(t, terraformOptions, "controller_ip")
+	client := NewAviatrixClient(t, controllerIP)
+	status, err := client.GetEmailExceptionNotificationStatus(context.Background())
+	assert.NoError(t, err)
+	assert.False(t, status)
+
+	// Import the resource into Terraform state and verify it
+	resourceName := terraform.Options(t, terraformOptions).Vars["resource_name"].(string)
+	importedTerraformOptions := terraform.ImportedResourceTerraformOptions(terraformOptions, resourceName, strings.Replace(controllerIP, ".", "-", -1))
+	importedTerraformOptions.BackendConfig = terraformOptions.BackendConfig
+	terraform.Import(t, importedTerraformOptions)
+	terraform.Refresh(t, importedTerraformOptions)
+	importedResourceStatus := terraform.Show(t, importedTerraformOptions, "-no-color")
+	assert.Contains(t, importedResourceStatus, fmt.Sprintf("enable_email_exception_notification = %q", false))
+}
+
+func NewAviatrixClient(t *testing.T, controllerIP string) *goaviatrix.Client {
+	username := os.Getenv("AVIATRIX_USERNAME")
+	password := os.Getenv("AVIATRIX_PASSWORD")
+	if username == "" || password == "" {
+		t.Fatal("AVIATRIX_USERNAME and/or AVIATRIX_PASSWORD environment variables are not set")
+	}
+
+	client, err := goaviatrix.NewClient(context.Background(), controllerIP, username, password, "")
+	if err != nil {
+		t.Fatalf("failed to create Aviatrix client: %v", err)
+	}
+
+	return client
+}
+func CheckControllerEmailExceptionNotificationExists(t *testing.T, resourceName string, client *goaviatrix.Client) {
+	status, err := client.GetEmailExceptionNotificationStatus(context.Background())
+	assert.NoError(t, err)
+	assert.False(t, status)
+
+	// Get the resource from Terraform state
+	resourceState := terraform.Show(t, terraformOptions, "-no-color")
+	assert.Contains(t, resourceState, fmt.Sprintf(`resource "aviatrix_controller_email_exception_notification_config" "%s"`, resourceName))
+	assert.Contains(t, resourceState, fmt.Sprintf(`enable_email_exception_notification = %q`, false))
+}
+
+func CheckControllerEmailExceptionNotificationConfigDestroy(t *testing.T, terraformOptions *terraform.Options, resourceName string, client *goaviatrix.Client) {
+	terraform.Refresh(t, terraformOptions)
+	CheckControllerEmailExceptionNotificationExists(t, resourceName, client)
 }

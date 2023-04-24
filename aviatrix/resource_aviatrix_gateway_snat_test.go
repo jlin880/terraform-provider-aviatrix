@@ -1,4 +1,4 @@
-package aviatrix
+package test
 
 import (
 	"fmt"
@@ -6,15 +6,15 @@ import (
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
 )
 
 func TestAccAviatrixGatewaySNat_basic(t *testing.T) {
 	var gateway goaviatrix.Gateway
 
-	rName := acctest.RandString(5)
+	rName := random.UniqueId()
 	importStateVerifyIgnore := []string{"vnet_and_resource_group_names"}
 
 	resourceName := "aviatrix_gateway_snat.test"
@@ -36,70 +36,58 @@ func TestAccAviatrixGatewaySNat_basic(t *testing.T) {
 	if skipSNatAWS == "yes" {
 		t.Log("Skipping AWS gateway source NAT tests as SKIP_GATEWAY_SNAT_AWS is set")
 	} else {
-		resource.Test(t, resource.TestCase{
-			PreCheck: func() {
-				testAccPreCheck(t)
-				preGatewaySNatCheck(t, msgCommon)
-				preSpokeGatewayCheck(t, msgCommon)
-			},
-			Providers:    testAccProviders,
-			CheckDestroy: testAccCheckGatewaySNatDestroy,
-			Steps: []resource.TestStep{
-				{
-					Config: testAccGatewaySNatConfigAWS(rName),
-					Check: resource.ComposeTestCheckFunc(
-						testAccCheckGatewaySNatExists(resourceName, &gateway),
-						resource.TestCheckResourceAttr(resourceName, "gw_name", fmt.Sprintf("tfg-aws-%s", rName)),
-						resource.TestCheckResourceAttr(resourceName, "snat_mode", "customized_snat"),
-						resource.TestCheckResourceAttr(resourceName, "snat_policy.#", "1"),
-						resource.TestCheckResourceAttr(resourceName, "snat_policy.0.protocol", "tcp"),
-						resource.TestCheckResourceAttr(resourceName, "snat_policy.0.snat_port", "12"),
-					),
-				},
-				{
-					ResourceName:            resourceName,
-					ImportState:             true,
-					ImportStateVerify:       true,
-					ImportStateVerifyIgnore: importStateVerifyIgnore,
-				},
-			},
-		})
+		terraformOptions := testAccGatewaySNatConfigAWS(rName)
+
+		defer terraform.Destroy(t, terraformOptions)
+		terraform.InitAndApply(t, terraformOptions)
+
+		gateway, err := getGateway(t, resourceName)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expectedGateway := goaviatrix.Gateway{
+			GwName:     fmt.Sprintf("tfg-aws-%s", rName),
+			SnatMode:   "customized_snat",
+			SnatPolicy: []goaviatrix.SnatPolicy{{Protocol: "tcp", SnatPort: "12"}},
+		}
+
+		assertGatewayMatches(t, gateway, &expectedGateway, resourceName)
 	}
 
 	if skipSNatAZURE == "yes" {
 		t.Log("Skipping Azure gateway source NAT tests as SKIP_GATEWAY_SNAT_AZURE is set")
 	} else {
-		importStateVerifyIgnore = append(importStateVerifyIgnore, "vpc_id")
-		resource.Test(t, resource.TestCase{
-			PreCheck: func() {
-				testAccPreCheck(t)
-				preGatewayCheck(t, msgCommon)
-				preSpokeGatewayCheck(t, msgCommon)
-			},
-			Providers:    testAccProviders,
-			CheckDestroy: testAccCheckGatewaySNatDestroy,
-			Steps: []resource.TestStep{
-				{
-					Config: testAccGatewaySNatConfigAZURE(rName),
-					Check: resource.ComposeTestCheckFunc(
-						testAccCheckGatewaySNatExists(resourceName, &gateway),
-						resource.TestCheckResourceAttr(resourceName, "gw_name", fmt.Sprintf("tfg-azure-%s", rName)),
-						resource.TestCheckResourceAttr(resourceName, "snat_mode", "customized_snat"),
-						resource.TestCheckResourceAttr(resourceName, "snat_policy.#", "1"),
-						resource.TestCheckResourceAttr(resourceName, "snat_policy.0.protocol", "tcp"),
-						resource.TestCheckResourceAttr(resourceName, "snat_policy.0.snat_port", "12"),
-					),
-				},
-				{
-					ResourceName:            resourceName,
-					ImportState:             true,
-					ImportStateVerify:       true,
-					ImportStateVerifyIgnore: importStateVerifyIgnore,
-				},
-			},
-		})
+		terraformOptions := testAccGatewaySNatConfigAZURE(rName)
+
+		defer terraform.Destroy(t, terraformOptions)
+		terraform.InitAndApply(t, terraformOptions)
+
+		gateway, err := getGateway(t, resourceName)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expectedGateway := goaviatrix.Gateway{
+			GwName:     fmt.Sprintf("tfg-azure-%s", rName),
+			SnatMode:   "customized_snat",
+			SnatPolicy: []goaviatrix.SnatPolicy{{Protocol: "tcp", SnatPort: "12"}},
+		}
+
+		assertGatewayMatches(t, gateway, &expectedGateway, resourceName)
 	}
 }
+
+func testAccGatewaySNatConfigAWS(rName string) *terraform.Options {
+	awsGwSize := os.Getenv("AWS_GW_SIZE")
+	if awsGwSize == "" {
+		awsGwSize = "t2.micro"
+	}
+	return &terraform.Options{
+		TerraformDir: "../../path/to/terraform/directory",
+		Vars: map[string]interface{}{
 
 func testAccGatewaySNatConfigAWS(rName string) string {
 	awsGwSize := os.Getenv("AWS_GW_SIZE")

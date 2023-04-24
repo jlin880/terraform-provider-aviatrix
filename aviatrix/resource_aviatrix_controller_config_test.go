@@ -1,6 +1,7 @@
 package aviatrix
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -44,8 +45,8 @@ func TestAccAviatrixControllerConfig_basic(t *testing.T) {
 			{
 				ResourceName:            resourceName,
 				ImportState:             true,
-				ImportStateVerify:       true,
-				ImportStateVerifyIgnore: importStateVerifyIgnore,
+					ImportStateVerify:       true,
+					ImportStateVerifyIgnore: importStateVerifyIgnore,
 			},
 		},
 	})

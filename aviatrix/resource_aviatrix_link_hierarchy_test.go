@@ -1,97 +1,138 @@
-package aviatrix
+package test
 
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
 )
 
-func TestAccAviatrixLinkHierarchy_basic(t *testing.T) {
-	if os.Getenv("SKIP_LINK_HIERARCHY") == "yes" {
-		t.Skip("Skipping link hierarchy test as SKIP_LINK_HIERARCHY is set")
+func TestAviatrixLinkHierarchy_basic(t *testing.T) {
+	t.Parallel()
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"name": random.UniqueId(),
+			"link_name": fmt.Sprintf("link-%s", random.UniqueId()),
+			"wan_tag": "wan3.10",
+		},
 	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
 
 	resourceName := "aviatrix_link_hierarchy.test"
-	linkHierarchyName := "lh-" + acctest.RandString(5)
-	linkName := "l-" + acctest.RandString(5)
+	linkHierarchyUUID := terraform.Output(t, terraformOptions, "aviatrix_link_hierarchy_uuid")
+	linkName := terraform.Output(t, terraformOptions, "link_name")
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
+	client := goaviatrix.NewClientFromEnv()
+
+	linkHierarchy, err := client.GetLinkHierarchy(context.Background(), linkHierarchyUUID)
+	assert.NoError(t, err)
+	assert.NotNil(t, linkHierarchy)
+
+	assert.Equal(t, terraformOptions.Vars["name"].(string), linkHierarchy.Name)
+
+	links := linkHierarchy.Links
+	assert.Len(t, links, 1)
+
+	assert.Equal(t, linkName, links[0].Name)
+	assert.Equal(t, terraformOptions.Vars["wan_tag"].(string), links[0].WANLink.WANTag)
+}
+func TestAccAviatrixLinkHierarchy_basic(t *testing.T) {
+	t.Parallel()
+
+	testName := fmt.Sprintf("link_hierarchy-%s", random.UniqueId())
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/link_hierarchy",
+		Vars: map[string]interface{}{
+			"name": testName,
+			"link_name": fmt.Sprintf("link-%s", random.UniqueId()),
+			"wan_tag": "wan3.10",
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckLinkHierarchyDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccLinkHierarchyBasic(linkHierarchyName, linkName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckLinkHierarchyExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "name", linkHierarchyName),
-					resource.TestCheckResourceAttr(resourceName, "links.0.name", linkName),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Check that the link hierarchy exists
+	linkHierarchyID := terraform.Output(t, terraformOptions, "link_hierarchy_id")
+	client := testAccProvider.Meta().(*goaviatrix.Client)
+	_, err := client.GetLinkHierarchy(context.Background(), linkHierarchyID)
+	assert.NoError(t, err)
+}
+
+func TestAccAviatrixLinkHierarchy_import(t *testing.T) {
+	t.Parallel()
+
+	testName := fmt.Sprintf("link_hierarchy-%s", random.UniqueId())
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/link_hierarchy",
+		Vars: map[string]interface{}{
+			"name": testName,
+			"link_name": fmt.Sprintf("link-%s", random.UniqueId()),
+			"wan_tag": "wan3.10",
 		},
-	})
-}
-
-func testAccLinkHierarchyBasic(linkHierarchyName, linkName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_link_hierarchy" "test" {
-	name = "%s"
-	
-	links {
-		name = "%s"
-		wan_link {
-			wan_tag = "wan3.10"
-		}
 	}
-}
- `, linkHierarchyName, linkName)
-}
 
-func testAccCheckLinkHierarchyExists(resourceName string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[resourceName]
-		if !ok {
-			return fmt.Errorf("link hierarchy not found: %s", resourceName)
-		}
+	defer terraform.Destroy(t, terraformOptions)
+	terraform.InitAndApply(t, terraformOptions)
 
-		client := testAccProvider.Meta().(*goaviatrix.Client)
+	resourceID := terraform.Output(t, terraformOptions, "link_hierarchy_id")
 
-		_, err := client.GetLinkHierarchy(context.Background(), rs.Primary.Attributes["uuid"])
-		if err == goaviatrix.ErrNotFound {
-			return fmt.Errorf("link hierarchy not found")
-		}
-
-		return nil
+	importedTerraformOptions := &terraform.Options{
+		TerraformDir: "../examples/link_hierarchy",
 	}
+
+	importedResourceName := "aviatrix_link_hierarchy.test"
+
+	resource.Import(t, importedTerraformOptions, importedResourceName, resourceID)
+
+	// Check that the link hierarchy exists
+	client := testAccProvider.Meta().(*goaviatrix.Client)
+	_, err := client.GetLinkHierarchy(context.Background(), resourceID)
+	assert.NoError(t, err)
+}
+func testAccCheckLinkHierarchyExists(resourceName string) testutil.ResourceExists {
+    return testutil.ResourceExists{
+        ResourceType: "aviatrix_link_hierarchy",
+        ResourceName: resourceName,
+        Get:          getLinkHierarchy,
+    }
 }
 
 func testAccCheckLinkHierarchyDestroy(s *terraform.State) error {
-	client := testAccProvider.Meta().(*goaviatrix.Client)
+    client := testAccProvider.Meta().(*goaviatrix.Client)
 
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_link_hierarchy" {
-			continue
-		}
+    for _, rs := range s.RootModule().Resources {
+        if rs.Type != "aviatrix_link_hierarchy" {
+            continue
+        }
 
-		_, err := client.GetLinkHierarchy(context.Background(), rs.Primary.Attributes["uuid"])
-		if err != goaviatrix.ErrNotFound {
-			return fmt.Errorf("link hierarchy still exists")
-		}
-	}
+        _, err := client.GetLinkHierarchy(context.Background(), rs.Primary.ID)
+        if err == nil {
+            return fmt.Errorf("link hierarchy still exists")
+        }
+    }
 
-	return nil
+    return nil
+}
+
+func getLinkHierarchy(client *goaviatrix.Client, resourceName string) (interface{}, error) {
+    rs, err := client.GetLinkHierarchy(context.Background(), resourceName)
+    if err != nil {
+        return nil, err
+    }
+
+    return rs, nil
 }

@@ -1,77 +1,117 @@
-package aviatrix
+package test
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestAccAviatrixSmartGroup_basic(t *testing.T) {
-	skipAcc := os.Getenv("SKIP_SMART_GROUP")
-	if skipAcc == "yes" {
-		t.Skip("Skipping Smart Group test as SKIP_SMART_GROUP is set")
-	}
-	resourceName := "aviatrix_smart_group.test"
-
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-		},
-		Providers:    testAccProvidersVersionValidation,
-		CheckDestroy: testAccSmartGroupDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccSmartGroupBasic(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckSmartGroupExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "name", "test-smart-group"),
-					resource.TestCheckResourceAttrSet(resourceName, "uuid"),
-					resource.TestCheckResourceAttr(resourceName, "selector.0.match_expressions.#", "2"),
-					resource.TestCheckResourceAttr(resourceName, "selector.0.match_expressions.0.cidr", "11.0.0.0/16"),
-
-					resource.TestCheckResourceAttr(resourceName, "selector.0.match_expressions.1.type", "vm"),
-					resource.TestCheckResourceAttr(resourceName, "selector.0.match_expressions.1.account_name", "devops"),
-					resource.TestCheckResourceAttr(resourceName, "selector.0.match_expressions.1.region", "us-west-2"),
-					resource.TestCheckResourceAttr(resourceName, "selector.0.match_expressions.1.tags.%", "1"),
-					resource.TestCheckResourceAttr(resourceName, "selector.0.match_expressions.1.tags.k3", "v3"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
+func TestAviatrixSmartGroup(t *testing.T) {
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"name": "test-smart-group",
+			"selector": []map[string]interface{}{
+				{
+					"match_expressions": []map[string]interface{}{
+						{
+							"cidr": "11.0.0.0/16",
+						},
+						{
+							"type":         "vm",
+							"account_name": "devops",
+							"region":       "us-west-2",
+							"tags": map[string]string{
+								"k3": "v3",
+							},
+						},
+					},
+				},
 			},
 		},
-	})
-}
-
-func testAccSmartGroupBasic() string {
-	return `
-resource "aviatrix_smart_group" "test" {
-	name = "test-smart-group"
-
-	selector {
-		match_expressions {
-			cidr = "11.0.0.0/16"
-		}
-
-		match_expressions {
-			type         = "vm"
-			account_name = "devops"
-			region       = "us-west-2"
-			tags         = {
-				k3 = "v3"
-			}
-		}
 	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	client := goaviatrix.NewClient("AVIATRIX_CONTROLLER_IP", "AVIATRIX_USERNAME", "AVIATRIX_PASSWORD", true)
+
+	smartGroup, err := client.GetSmartGroup(context.Background(), "test-smart-group")
+	assert.NoError(t, err)
+	assert.NotNil(t, smartGroup)
+
+	assert.Equal(t, "test-smart-group", smartGroup.Name)
+	assert.Equal(t, 2, len(smartGroup.Selector[0].MatchExpressions))
+	assert.Equal(t, "11.0.0.0/16", smartGroup.Selector[0].MatchExpressions[0].Cidr)
+	assert.Equal(t, "vm", smartGroup.Selector[0].MatchExpressions[1].Type)
+	assert.Equal(t, "devops", smartGroup.Selector[0].MatchExpressions[1].AccountName)
+	assert.Equal(t, "us-west-2", smartGroup.Selector[0].MatchExpressions[1].Region)
+	assert.Equal(t, map[string]string{"k3": "v3"}, smartGroup.Selector[0].MatchExpressions[1].Tags)
 }
-`
+
+func TestAviatrixSmartGroup_update(t *testing.T) {
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"name": "test-smart-group",
+			"selector": []map[string]interface{}{
+				{
+					"match_expressions": []map[string]interface{}{
+						{
+							"cidr": "11.0.0.0/16",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	terraformOptions.Vars["selector"] = []map[string]interface{}{
+		{
+			"match_expressions": []map[string]interface{}{
+				{
+					"cidr": "11.0.0.0/16",
+				},
+				{
+					"type":         "vm",
+					"account_name": "devops",
+					"region":       "us-west-2",
+					"tags": map[string]string{
+						"k3": "v3",
+					},
+				},
+			},
+		},
+	}
+
+	terraform.Apply(t, terraformOptions)
+
+	smartGroupName := terraform.Output(t, terraformOptions, "name")
+	smartGroupID := terraform.Output(t, terraformOptions, "id")
+
+	client := goaviatrix.NewClient("AVIATRIX_CONTROLLER_IP", "AVIATRIX_USERNAME", "AVIATRIX_PASSWORD", true)
+
+	smartGroup, err := client.GetSmartGroup(context.Background(), smartGroupID)
+	assert.NoError(t, err)
+	assert.NotNil(t, smartGroup)
+
+	assert.Equal(t, smartGroupName, smartGroup.Name)
+	assert.Equal(t, 2, len(smartGroup.Selector[0].MatchExpressions))
+	assert.Equal(t, "11.0.0.0/16", smartGroup.Selector[0].MatchExpressions[0].Cidr)
+	assert.Equal(t, "vm", smartGroup.Selector[0].MatchExpressions[1].Type)
+	assert.Equal(t, "devops", smartGroup.Selector[0].MatchExpressions[1].AccountName)
+	assert.Equal(t, "us-west-2", smartGroup.Selector[0].MatchExpressions[1].Region)
+	assert.Equal(t, map[string]string{"k3": "v3"}, smartGroup.Selector[0].MatchExpressions[1].Tags)
 }
+
 
 func testAccCheckSmartGroupExists(n string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {

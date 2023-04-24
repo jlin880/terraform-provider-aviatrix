@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
     "context"
@@ -7,9 +7,10 @@ import (
     "testing"
 
     "github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-    "github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-    "github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-    "github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+    "github.com/gruntwork-io/terratest/modules/acctest"
+    "github.com/gruntwork-io/terratest/modules/random"
+    "github.com/gruntwork-io/terratest/modules/terraform"
+    "github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixAwsTgwConnectPeer_basic(t *testing.T) {
@@ -17,118 +18,119 @@ func TestAccAviatrixAwsTgwConnectPeer_basic(t *testing.T) {
         t.Skip("Skipping Branch Router test as SKIP_AWS_TGW_CONNECT_PEER is set")
     }
 
-    rName := acctest.RandString(5)
-    resourceName := "aviatrix_aws_tgw_connect_peer.test_aws_tgw_connect_peer"
-
-    resource.Test(t, resource.TestCase{
-        PreCheck: func() {
-            testAccPreCheck(t)
+    rName := random.UniqueId()
+    terraformOptions := &terraform.Options{
+        TerraformDir: ".",
+        Vars: map[string]interface{}{
+            "region":           os.Getenv("AWS_REGION"),
+            "resource_name":    "test-aws-tgw-connect-peer",
+            "connection_name":  fmt.Sprintf("aws-tgw-connect-%s", rName),
+            "connect_peer_name": fmt.Sprintf("connect-peer-%s", rName),
+            "peer_as_number":   "65001",
+            "peer_gre_address": "172.31.1.11",
+            "bgp_inside_cidrs": []string{"169.254.6.0/29"},
+            "tgw_gre_address":  "10.0.0.32",
         },
-        Providers:    testAccProviders,
-        CheckDestroy: testAccCheckAwsTgwConnectPeerDestroy,
-        Steps: []resource.TestStep{
-            {
-                Config: testAccAwsTgwConnectPeerBasic(rName),
-                Check: resource.ComposeTestCheckFunc(
-                    testAccCheckAwsTgwConnectPeerExists(resourceName),
-                    resource.TestCheckResourceAttr(resourceName, "tgw_name", "aws-tgw-"+rName),
-                    resource.TestCheckResourceAttr(resourceName, "connection_name", "aws-tgw-connect-"+rName),
-                    resource.TestCheckResourceAttr(resourceName, "connect_peer_name", "connect-peer-"+rName),
-                    resource.TestCheckResourceAttr(resourceName, "peer_as_number", "65001"),
-                    resource.TestCheckResourceAttr(resourceName, "peer_gre_address", "172.31.1.11"),
-                    resource.TestCheckResourceAttr(resourceName, "bgp_inside_cidrs.0", "169.254.6.0/29"),
-                    resource.TestCheckResourceAttr(resourceName, "tgw_gre_address", "10.0.0.32"),
-                ),
-            },
-            {
-                ResourceName:      resourceName,
-                ImportState:       true,
-                ImportStateVerify: true,
-            },
-        },
-    })
+    }
+
+    defer terraform.Destroy(t, terraformOptions)
+
+    terraform.InitAndApply(t, terraformOptions)
+
+    checkAwsTgwConnectPeerAttributes := func() error {
+        awsTgwConnectPeer, err := getAwsTgwConnectPeer(t, terraformOptions, rName)
+        if err != nil {
+            return err
+        }
+        assert.Equal(t, awsTgwConnectPeer.ConnectionName, terraformOptions.Vars["connection_name"].(string))
+        assert.Equal(t, awsTgwConnectPeer.ConnectPeerName, terraformOptions.Vars["connect_peer_name"].(string))
+        assert.Equal(t, awsTgwConnectPeer.PeerAsNumber, terraformOptions.Vars["peer_as_number"].(string))
+        assert.Equal(t, awsTgwConnectPeer.PeerGreAddress, terraformOptions.Vars["peer_gre_address"].(string))
+        assert.Equal(t, awsTgwConnectPeer.BgpInsideCidrs, terraformOptions.Vars["bgp_inside_cidrs"].([]string))
+        assert.Equal(t, awsTgwConnectPeer.TgwGreAddress, terraformOptions.Vars["tgw_gre_address"].(string))
+
+        return nil
+    }
+
+    assert.NoError(t, checkAwsTgwConnectPeerAttributes())
+}
+func TestAccAwsTgwConnectPeerBasic(t *testing.T) {
+	t.Parallel()
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../path/to/terraform/config",
+		Vars: map[string]interface{}{
+			"region": os.Getenv("AWS_REGION"),
+			"name":   "test",
+		},
+	}
+
+	// Run terraform init, apply, and destroy
+	terraform.InitAndApply(t, terraformOptions)
+	defer terraform.Destroy(t, terraformOptions)
+
+	// Get the connection name from the output
+	connectionName := terraform.Output(t, terraformOptions, "connection_name")
+
+	// Create an AWS session
+	awsSession, err := session.NewSessionWithOptions(session.Options{
+		SharedConfigState: session.SharedConfigEnable,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a new Aviatrix client
+	client, err := goaviatrix.NewClientWithAWS(awsSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Get the TGW connect peer
+	awsTgwConnectPeer := &goaviatrix.AwsTgwConnectPeer{
+		ConnectionName:  connectionName,
+		TgwName:         fmt.Sprintf("aws-tgw-%s", terraformOptions.Vars["name"].(string)),
+		ConnectPeerName: fmt.Sprintf("connect-peer-%s", terraformOptions.Vars["name"].(string)),
+	}
+	foundAwsTgwConnectPeer, err := client.GetTGWConnectPeer(context.Background(), awsTgwConnectPeer)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert that the TGW connect peer exists
+	assert.Equal(t, awsTgwConnectPeer.ConnectionName, foundAwsTgwConnectPeer.ConnectionName)
+	assert.Equal(t, awsTgwConnectPeer.TgwName, foundAwsTgwConnectPeer.TgwName)
+	assert.Equal(t, awsTgwConnectPeer.ConnectPeerName, foundAwsTgwConnectPeer.ConnectPeerName)
 }
 
-func testAccAwsTgwConnectPeerBasic(rName string) string {
-    return fmt.Sprintf(`
-%s
+func TestAccAwsTgwConnectPeerDestroy(t *testing.T) {
+	t.Parallel()
 
-resource "aviatrix_aws_tgw" "test_aws_tgw" {
-    account_name       = aviatrix_account.aws.account_name
-    aws_side_as_number = "64512"
-    region             = "%[3]s"
-    tgw_name           = "aws-tgw-%[2]s"
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../path/to/terraform/config",
+		Vars: map[string]interface{}{
+			"region": os.Getenv("AWS_REGION"),
+			"name":   "test",
+		},
+	}
 
-    cidrs = ["10.0.0.0/24", "10.1.0.0/24", "8.0.0.0/24", "5.0.0.0/24"]
-}
+	// Run terraform init, apply, and destroy
+	terraform.InitAndApply(t, terraformOptions)
+	defer terraform.Destroy(t, terraformOptions)
 
-resource "aviatrix_aws_tgw_network_domain" "Default_Domain" {
-    name     = "Default_Domain"
-    tgw_name = aviatrix_aws_tgw.test_aws_tgw.tgw_name
-}
+	// Create an AWS session
+	awsSession, err := session.NewSessionWithOptions(session.Options{
+		SharedConfigState: session.SharedConfigEnable,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-resource "aviatrix_aws_tgw_network_domain" "Shared_Service_Domain" {
-    name     = "Shared_Service_Domain"
-    tgw_name = aviatrix_aws_tgw.test_aws_tgw.tgw_name
-}
-
-resource "aviatrix_aws_tgw_network_domain" "Aviatrix_Edge_Domain" {
-    name     = "Aviatrix_Edge_Domain"
-    tgw_name = aviatrix_aws_tgw.test_aws_tgw.tgw_name
-}
-
-resource "aviatrix_aws_tgw_peering_domain_conn" "default_nd_conn1" {
-	tgw_name1    = aviatrix_aws_tgw.test_aws_tgw.tgw_name
-	domain_name1 = aviatrix_aws_tgw_network_domain.Aviatrix_Edge_Domain.name
-	tgw_name2    = aviatrix_aws_tgw.test_aws_tgw.tgw_name
-	domain_name2 = aviatrix_aws_tgw_network_domain.Default_Domain.name
-}
-resource "aviatrix_aws_tgw_peering_domain_conn" "default_nd_conn2" {
-	tgw_name1    = aviatrix_aws_tgw.test_aws_tgw.tgw_name
-	domain_name1 = aviatrix_aws_tgw_network_domain.Aviatrix_Edge_Domain.name
-	tgw_name2    = aviatrix_aws_tgw.test_aws_tgw.tgw_name
-	domain_name2 = aviatrix_aws_tgw_network_domain.Shared_Service_Domain.name
-}
-resource "aviatrix_aws_tgw_peering_domain_conn" "default_nd_conn3" {
-	tgw_name1    = aviatrix_aws_tgw.test_aws_tgw.tgw_name
-	domain_name1 = aviatrix_aws_tgw_network_domain.Default_Domain.name
-	tgw_name2    = aviatrix_aws_tgw.test_aws_tgw.tgw_name
-	domain_name2 = aviatrix_aws_tgw_network_domain.Shared_Service_Domain.name
-}
-resource aviatrix_vpc tgw_attach_vpc {
-	cloud_type           = aviatrix_account.aws.cloud_type
-	account_name         = aviatrix_account.aws.account_name
-	region               = "%[3]s"
-	name                 = "tgw-attach-vpc-%[2]s"
-	cidr                 = "10.10.0.0/16"
-	aviatrix_firenet_vpc = false
-	aviatrix_transit_vpc = false
-}
-resource "aviatrix_aws_tgw_vpc_attachment" "aws_tgw_vpc_attachment" {
-	tgw_name            = aviatrix_aws_tgw.test_aws_tgw.tgw_name
-	region              = "%[3]s"
-	network_domain_name = "Shared_Service_Domain"
-	vpc_account_name    = aviatrix_account.aws.account_name
-	vpc_id              = aviatrix_vpc.tgw_attach_vpc.vpc_id
-}
-resource "aviatrix_aws_tgw_connect" "test_aws_tgw_connect" {
-	tgw_name            = aviatrix_aws_tgw.test_aws_tgw.tgw_name
-	connection_name     = "aws-tgw-connect-%[2]s"
-	transport_vpc_id    = aviatrix_aws_tgw_vpc_attachment.aws_tgw_vpc_attachment.vpc_id
-	network_domain_name = aviatrix_aws_tgw_vpc_attachment.aws_tgw_vpc_attachment.network_domain_name
-}
-resource "aviatrix_aws_tgw_connect_peer" "test_aws_tgw_connect_peer" {
-	tgw_name              = aviatrix_aws_tgw.test_aws_tgw.tgw_name
-	connection_name       = aviatrix_aws_tgw_connect.test_aws_tgw_connect.connection_name
-	connect_peer_name     = "connect-peer-%[2]s"
-	connect_attachment_id = aviatrix_aws_tgw_connect.test_aws_tgw_connect.connect_attachment_id
-	peer_as_number        = "65001"
-	peer_gre_address      = "172.31.1.11"
-	bgp_inside_cidrs      = ["169.254.6.0/29"]
-	tgw_gre_address       = "10.0.0.32"
-}
-`, testAccAccountConfigAWS(acctest.RandInt()), rName, os.Getenv("AWS_REGION"))
-}
+	// Create a new Aviatrix client
+	client, err := goaviatrix.NewClientWithAWS(awsSession)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 func testAccCheckAwsTgwConnectPeerExists(n string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
@@ -179,4 +181,8 @@ func testAccCheckAwsTgwConnectPeerDestroy(s *terraform.State) error {
 	}
 
 	return nil
+}
+
+func getAwsTgwConnectPeerID(resourceName string) string {
+	return fmt.Sprintf("tgw:%s:conn:%s:peer:%s", testAccProvider.Meta().(*goaviatrix.Client).AccountName, resourceName, resourceName)
 }

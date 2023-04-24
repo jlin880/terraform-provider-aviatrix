@@ -1,4 +1,4 @@
-package aviatrix
+package test
 
 import (
 	"context"
@@ -7,7 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
@@ -15,13 +16,12 @@ import (
 )
 
 func TestAccAviatrixControllerEmailConfig_basic(t *testing.T) {
+	resourceName := "aviatrix_controller_email_config.test"
+	rName := random.UniqueId() + "@test.com"
 	skipAcc := os.Getenv("SKIP_CONTROLLER_EMAIL_CONFIG")
 	if skipAcc == "yes" {
 		t.Skip("Skipping Controller Email Config test as SKIP_CONTROLLER_CERT_DOMAIN_CONFIG is set")
 	}
-
-	rName := acctest.RandString(5) + "@gmail.com"
-	resourceName := "aviatrix_controller_email_config.test"
 
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
@@ -49,6 +49,51 @@ func TestAccAviatrixControllerEmailConfig_basic(t *testing.T) {
 		},
 	})
 }
+
+func testAccControllerEmailConfigBasic(rName string) string {
+	return fmt.Sprintf(`
+resource "aviatrix_controller_email_config" "test" {
+	admin_alert_email                   = "%s"
+	critical_alert_email                = "%s"
+	security_event_email                = "%s"
+	status_change_email                 = "%s"
+	status_change_notification_interval = 20
+}
+`, rName, rName, rName, rName)
+}
+
+func testAccCheckControllerEmailConfigExists(n string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[n]
+		if !ok {
+			return fmt.Errorf("controller email config ID Not found: %s", n)
+		}
+		if rs.Primary.ID == "" {
+			return fmt.Errorf("controller email config ID is not set")
+		}
+
+		client := testAccProviderVersionValidation.Meta().(*goaviatrix.Client)
+
+		emailConfig, err := client.GetNotificationEmails(context.Background())
+		if err != nil {
+			return fmt.Errorf("failed to get controller email notification settings: %v", err)
+		}
+
+		if emailConfig.AdminAlertEmail != rs.Primary.Attributes["admin_alert_email"] {
+			return fmt.Errorf("admin alert email mismatch")
+		}
+		if emailConfig.CriticalAlertEmail != rs.Primary.Attributes["critical_alert_email"] {
+			return fmt.Errorf("critical alert email mismatch")
+		}
+		if emailConfig.SecurityEventEmail != rs.Primary.Attributes["security_event_email"] {
+			return fmt.Errorf("security event email mismatch")
+		}
+		if emailConfig.StatusChangeEmail != rs.Primary.Attributes["status_change_email"] {
+			return fmt.Errorf("status change email mismatch")
+		}
+		if emailConfig.StatusChangeNotificationInterval != 20 {
+			return fmt.Errorf("status change notification interval mismatch")
+		}
 
 func testAccControllerEmailConfigBasic(rName string) string {
 	return fmt.Sprintf(`

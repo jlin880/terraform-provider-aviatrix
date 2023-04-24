@@ -1,177 +1,98 @@
-package aviatrix
+package test
 
 import (
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/AviatrixSystems/terratest-aviatrix-nonet/api"
 )
 
-func TestAccAviatrixAwsTgwTransitGatewayAttachment_basic(t *testing.T) {
-	var awsTgwTransitGwAttachment goaviatrix.AwsTgwTransitGwAttachment
+func TestAwsTgwVpcAttachment(t *testing.T) {
+	t.Parallel()
 
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_aws_tgw_transit_gateway_attachment.test"
+	// Declare variables for the test
+	rName := fmt.Sprintf("test-aws-tgw-vpc-attach-%s", strings.ToLower(random.UniqueId()))
+	awsSideAsNumber := "64512"
+	nDm := "test"
 
-	skipAcc := os.Getenv("SKIP_AWS_TGW_TRANSIT_GATEWAY_ATTACHMENT")
-	if skipAcc == "yes" {
-		t.Skip("Skipping AWS tgw transit gateway test as 'SKIP_AWS_TGW_TRANSIT_GATEWAY_ATTACHMENT' is set")
-	}
-
-	msg := ". Set 'SKIP_AWS_TGW_TRANSIT_GATEWAY_ATTACHMENT' to 'yes' to skip AWS tgw transit gateway tests"
-
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, msg)
+	// Deploy the Terraform code
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../",
+		Vars: map[string]interface{}{
+			"aws_region":     os.Getenv("AWS_REGION"),
+			"aws_vpc_id":     os.Getenv("AWS_VPC_ID"),
+			"tgw_vpc_attach": rName,
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckAwsTgwTransitGatewayAttachmentDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccAwsTgwTransitGatewayAttachmentConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					tesAccCheckAwsTgwTransitGatewayAttachmentExists(resourceName, &awsTgwTransitGwAttachment),
-					resource.TestCheckResourceAttr(resourceName, "tgw_name", fmt.Sprintf("tft-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "region", os.Getenv("AWS_REGION")),
-					resource.TestCheckResourceAttr(resourceName, "vpc_account_name", fmt.Sprintf("tfa-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "vpc_id", os.Getenv("AWS_VPC_ID")),
-					resource.TestCheckResourceAttr(resourceName, "transit_gateway_name", fmt.Sprintf("tfg-%s", rName)),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
-}
-
-func testAccAwsTgwTransitGatewayAttachmentConfigBasic(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_account" "test" {
-	account_name       = "tfa-%s"
-	cloud_type         = 1
-	aws_account_number = "%s"
-	aws_iam            = false
-	aws_access_key     = "%s"
-	aws_secret_key     = "%s"
-}
-resource "aviatrix_aws_tgw" "test" {
-	account_name       = aviatrix_account.test.account_name
-	aws_side_as_number = "64512"
-	region             = "%s"
-	tgw_name           = "tft-%s"
-}
-resource "aviatrix_aws_tgw_network_domain" "Default_Domain" {
-	name     = "Default_Domain"
-	tgw_name = aviatrix_aws_tgw.test.tgw_name
-}
-resource "aviatrix_aws_tgw_network_domain" "Shared_Service_Domain" {
-	name     = "Shared_Service_Domain"
-	tgw_name = aviatrix_aws_tgw.test.tgw_name
-}
-resource "aviatrix_aws_tgw_network_domain" "Aviatrix_Edge_Domain" {
-	name     = "Aviatrix_Edge_Domain"
-	tgw_name = aviatrix_aws_tgw.test.tgw_name
-}
-resource "aviatrix_aws_tgw_peering_domain_conn" "default_nd_conn1" {
-	tgw_name1    = aviatrix_aws_tgw.test.tgw_name
-	domain_name1 = aviatrix_aws_tgw_network_domain.Aviatrix_Edge_Domain.name
-	tgw_name2    = aviatrix_aws_tgw.test.tgw_name
-	domain_name2 = aviatrix_aws_tgw_network_domain.Default_Domain.name
-}
-resource "aviatrix_aws_tgw_peering_domain_conn" "default_nd_conn2" {
-	tgw_name1    = aviatrix_aws_tgw.test.tgw_name
-	domain_name1 = aviatrix_aws_tgw_network_domain.Aviatrix_Edge_Domain.name
-	tgw_name2    = aviatrix_aws_tgw.test.tgw_name
-	domain_name2 = aviatrix_aws_tgw_network_domain.Shared_Service_Domain.name
-}
-resource "aviatrix_aws_tgw_peering_domain_conn" "default_nd_conn3" {
-	tgw_name1    = aviatrix_aws_tgw.test.tgw_name
-	domain_name1 = aviatrix_aws_tgw_network_domain.Default_Domain.name
-	tgw_name2    = aviatrix_aws_tgw.test.tgw_name
-	domain_name2 = aviatrix_aws_tgw_network_domain.Shared_Service_Domain.name
-}
-resource "aviatrix_transit_gateway" "test" {
-	cloud_type               = 1
-	account_name             = aviatrix_account.test.account_name
-	gw_name                  = "tfg-%s"
-	vpc_id                   = "%s"
-	vpc_reg                  = aviatrix_aws_tgw.test.region
-	gw_size                  = "c5.xlarge"
-	subnet                   = "%s"
-	enable_hybrid_connection = true
-	connected_transit        = true
-}
-resource "aviatrix_aws_tgw_transit_gateway_attachment" "test" {
-	tgw_name             = aviatrix_aws_tgw.test.tgw_name
-	region               = aviatrix_aws_tgw.test.region
-	vpc_account_name     = aviatrix_transit_gateway.test.account_name
-	vpc_id               = aviatrix_transit_gateway.test.vpc_id
-	transit_gateway_name = aviatrix_transit_gateway.test.gw_name
-}
-	`, rName, os.Getenv("AWS_ACCOUNT_NUMBER"), os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"),
-		os.Getenv("AWS_REGION"), rName, rName, os.Getenv("AWS_VPC_ID"), os.Getenv("AWS_SUBNET"))
-}
-
-func tesAccCheckAwsTgwTransitGatewayAttachmentExists(n string, awsTgwTransitGwAttachment *goaviatrix.AwsTgwTransitGwAttachment) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[n]
-		if !ok {
-			return fmt.Errorf("AWS tgw transit gatway attachment Not found: %s", n)
-		}
-		if rs.Primary.ID == "" {
-			return fmt.Errorf("no AWS tgw transit gatway attachment ID is set")
-		}
-
-		client := testAccProvider.Meta().(*goaviatrix.Client)
-
-		foundAwsTgwTransitGwAttachment := &goaviatrix.AwsTgwTransitGwAttachment{
-			TgwName: rs.Primary.Attributes["tgw_name"],
-			VpcID:   rs.Primary.Attributes["vpc_id"],
-		}
-
-		foundAwsTgwTransitGwAttachment2, err := client.GetAwsTgwTransitGwAttachment(foundAwsTgwTransitGwAttachment)
-		if err != nil {
-			return err
-		}
-		if foundAwsTgwTransitGwAttachment2.TgwName != rs.Primary.Attributes["tgw_name"] {
-			return fmt.Errorf("'tgw_name' Not found in created attributes")
-		}
-		if foundAwsTgwTransitGwAttachment2.VpcID != rs.Primary.Attributes["vpc_id"] {
-			return fmt.Errorf("'vpc_id' Not found in created attributes")
-		}
-
-		*awsTgwTransitGwAttachment = *foundAwsTgwTransitGwAttachment2
-		return nil
 	}
+	defer terraform.Destroy(t, terraformOptions)
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Check if the AWS TGW VPC Attachment exists and save its details to a variable
+	var awsTgwVpcAttachment api.AwsTgwVpcAttachment
+	resourceName := fmt.Sprintf("aviatrix_aws_tgw_vpc_attachment.test-%s", rName)
+	assert.NoError(t, testAccCheckAwsTgwVpcAttachmentExists(resourceName, &awsTgwVpcAttachment))
+
+	// Check if the Security Domain was correctly set
+	assert.Equal(t, nDm, awsTgwVpcAttachment.SecurityDomainName)
+
+	// Check if the AWS account number was correctly set
+	accountName := fmt.Sprintf("tfa-%s", rName)
+	assert.Equal(t, accountName, awsTgwVpcAttachment.VpcAccountName)
+
+	// Check if the VPC ID was correctly set
+	assert.Equal(t, os.Getenv("AWS_VPC_ID"), awsTgwVpcAttachment.VpcID)
+
+	// Check if the TGW VPC Attachment was correctly attached
+	assert.Equal(t, "attached", awsTgwVpcAttachment.AttachmentStatus)
 }
 
-func testAccCheckAwsTgwTransitGatewayAttachmentDestroy(s *terraform.State) error {
-	client := testAccProvider.Meta().(*goaviatrix.Client)
+func testAccCheckAwsTgwVpcAttachmentExists(n string, awsTgwVpcAttachment *api.AwsTgwVpcAttachment) error {
+	terraformOptions := &terraform.Options{TerraformDir: "../"}
+	output := terraform.Show(t, terraformOptions, "json")
+	resources := output["values"].(map[string]interface{})["root_module"].(map[string]interface{})["resources"].([]interface{})
 
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_aws_tgw_transit_gateway_attachment" {
+	for _, res := range resources {
+		if res.(map[string]interface{})["type"].(string) != "aviatrix_aws_tgw_vpc_attachment" {
 			continue
 		}
 
-		foundAwsTgwTransitGwAttachment := &goaviatrix.AwsTgwTransitGwAttachment{
-			TgwName: rs.Primary.Attributes["tgw_name"],
-			VpcID:   rs.Primary.Attributes["vpc_id"],
+		attributes := res.(map[string]interface{})["values"].(map[string]interface{})
+		if attributes["tgw_name"].(string) != os.Getenv("AWS_TGW_NAME") || attributes["network_domain_name"].(string) != awsTgwVpcAttachment.SecurityDomainName || attributes["vpc_id"].(string) != os.Getenv("AWS_VPC_ID") {
+			continue
 		}
-		_, err := client.GetAwsTgwTransitGwAttachment(foundAwsTgwTransitGwAttachment)
-		if err == nil {
-			return fmt.Errorf("aviatrix AWS tgw transit gateway attachment still exists: %s", err.Error())
-		}
+
+		awsTgwVpcAttachment.TgwName = attributes["tgw_name"].(string)
+		awsTgwVpcAttachment.SecurityDomainName = attributes["network_domain_name"].(string)
+		awsTgwVpcAttachment.VpcID = attributes["vpc_id"].(string)
+		awsTgwVpcAttachment.AttachmentStatus = attributes["attachment_status"].(string)
 
 		return nil
 	}
 
-	return nil
+	return fmt.Errorf("AWS TGW VPC ATTACH not found: %s", n)
+}
+
+
+func testAccCheckAwsTgwVpcAttachmentDestroy(t *testing.T, awsTgwVpcAttachment *goaviatrix.AwsTgwVpcAttachment) {
+	client := testAccProvider.Meta().(*goaviatrix.Client)
+
+	err := retry.DoWithRetry(t, "Waiting for AWS TGW VPC attachment to be destroyed", 30, 5*time.Second, func() (string, error) {
+		foundAwsTgwVpcAttachment, err := client.GetAwsTgwVpcAttachment(awsTgwVpcAttachment)
+		if err != nil {
+			if strings.Contains(err.Error(), "no such resource") {
+				return "", nil
+			}
+			return "", fmt.Errorf("failed to get AWS TGW VPC attachment: %v", err)
+		}
+		if foundAwsTgwVpcAttachment != nil {
+			return "", fmt.Errorf("AWS TGW VPC attachment still exists")
+		}
+		return "AWS TGW VPC attachment destroyed", nil
+	})
+
+	require.NoError(t, err)
 }

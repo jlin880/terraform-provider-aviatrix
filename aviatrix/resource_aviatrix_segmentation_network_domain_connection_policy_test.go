@@ -1,97 +1,77 @@
 package aviatrix
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixSegmentationNetworkDomainConnectionPolicy_basic(t *testing.T) {
+	t.Parallel()
+
 	if os.Getenv("SKIP_SEGMENTATION_NETWORK_DOMAIN_CONNECTION_POLICY") == "yes" {
 		t.Skip("Skipping segmentation network domain conn policy test as SKIP_SEGMENTATION_NETWORK_DOMAIN_CONNECTION_POLICY is set")
 	}
 
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_segmentation_network_domain_connection_policy.test_segmentation_network_domain_connection_policy"
+	ctx := context.Background()
+	rName := random.UniqueId()
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
+	segmentationNetworkDomain1 := fmt.Sprintf("segmentation-sd-1-%s", rName)
+	segmentationNetworkDomain2 := fmt.Sprintf("segmentation-sd-2-%s", rName)
+
+	resourceOptions := &terraform.Options{
+		TerraformDir: "./",
+		VarFiles:     []string{"test-fixtures/segmentation_network_domain_connection_policy.tfvars"},
+		Vars: map[string]interface{}{
+			"segmentation_network_domain1": segmentationNetworkDomain1,
+			"segmentation_network_domain2": segmentationNetworkDomain2,
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckSegmentationNetworkDomainConnectionPolicyDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccSegmentationNetworkDomainConnectionPolicyBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckSegmentationNetworkDomainConnectionPolicyExists(resourceName),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
+	}
+
+	defer terraform.Destroy(ctx, resourceOptions)
+
+	terraform.InitAndApply(ctx, resourceOptions)
+
+	resourceID := fmt.Sprintf("aviatrix_segmentation_network_domain_connection_policy.test_segmentation_network_domain_connection_policy")
+	verifySegmentationNetworkDomainConnectionPolicyExists(ctx, t, resourceID, segmentationNetworkDomain1, segmentationNetworkDomain2)
+}
+
+func verifySegmentationNetworkDomainConnectionPolicyExists(ctx context.Context, t *testing.T, resourceName string, segmentationNetworkDomain1 string, segmentationNetworkDomain2 string) {
+	client := getAviatrixClientFromProvider()
+
+	foundSegmentationNetworkDomainConnectionPolicy := &goaviatrix.SegmentationSecurityDomainConnectionPolicy{
+		Domain1: &goaviatrix.SegmentationSecurityDomain{
+			DomainName: segmentationNetworkDomain1,
 		},
-	})
-}
+		Domain2: &goaviatrix.SegmentationSecurityDomain{
+			DomainName: segmentationNetworkDomain2,
+		},
+	}
 
-func testAccSegmentationNetworkDomainConnectionPolicyBasic(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_segmentation_network_domain" "test_segmentation_network_domain_1" {
-	domain_name = "segmentation-sd-1-%[1]s"
-}
-
-resource "aviatrix_segmentation_network_domain" "test_segmentation_network_domain_2" {
-	domain_name = "segmentation-sd-2-%[1]s"
-}
-
-resource "aviatrix_segmentation_network_domain_connection_policy" "test_segmentation_network_domain_connection_policy" {
-	domain_name_1 = aviatrix_segmentation_network_domain.test_segmentation_network_domain_1.domain_name
-	domain_name_2 = aviatrix_segmentation_network_domain.test_segmentation_network_domain_2.domain_name
-}
-`, rName)
-}
-
-func testAccCheckSegmentationNetworkDomainConnectionPolicyExists(n string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[n]
-		if !ok {
-			return fmt.Errorf("segmentation_network_domain_connection_policy Not found: %s", n)
-		}
-		if rs.Primary.ID == "" {
-			return fmt.Errorf("no segmentation_network_domain_connection_policy ID is set")
-		}
-
-		client := testAccProvider.Meta().(*goaviatrix.Client)
-
-		foundSegmentationNetworkDomainConnectionPolicy := &goaviatrix.SegmentationSecurityDomainConnectionPolicy{
-			Domain1: &goaviatrix.SegmentationSecurityDomain{
-				DomainName: rs.Primary.Attributes["domain_name_1"],
-			},
-			Domain2: &goaviatrix.SegmentationSecurityDomain{
-				DomainName: rs.Primary.Attributes["domain_name_2"],
-			},
-		}
-
+	err := resource.RetryContext(ctx, retryTimeout, func() *resource.RetryError {
 		_, err := client.GetSegmentationSecurityDomainConnectionPolicy(foundSegmentationNetworkDomainConnectionPolicy)
 		if err != nil {
-			return err
+			return resource.NonRetryableError(fmt.Errorf("failed to get segmentation network domain connection policy: %v", err))
 		}
-		id := foundSegmentationNetworkDomainConnectionPolicy.Domain1.DomainName + "~" + foundSegmentationNetworkDomainConnectionPolicy.Domain2.DomainName
-		if id != rs.Primary.ID {
-			return fmt.Errorf("segmentation_network_domain_connection_policy not found")
+
+		if foundSegmentationNetworkDomainConnectionPolicy.Domain1.DomainName+"~"+foundSegmentationNetworkDomainConnectionPolicy.Domain2.DomainName != resourceName {
+			return resource.RetryableError(fmt.Errorf("segmentation network domain connection policy not found yet"))
 		}
 
 		return nil
-	}
+	})
+	assert.Nil(t, err)
 }
 
+func getAviatrixClientFromProvider() *goaviatrix.Client {
+	return testAccProvider.Meta().(*goaviatrix.Client)
+}
 func testAccCheckSegmentationNetworkDomainConnectionPolicyDestroy(s *terraform.State) error {
 	client := testAccProvider.Meta().(*goaviatrix.Client)
 
@@ -115,3 +95,4 @@ func testAccCheckSegmentationNetworkDomainConnectionPolicyDestroy(s *terraform.S
 
 	return nil
 }
+

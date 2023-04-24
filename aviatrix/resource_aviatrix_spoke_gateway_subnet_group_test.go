@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"context"
@@ -6,84 +6,81 @@ import (
 	"os"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
 )
 
-func TestAccAviatrixSpokeGatewaySubnetGroup_basic(t *testing.T) {
-	if os.Getenv("SKIP_SPOKE_GATEWAY_SUBNET_GROUP") == "yes" {
-		t.Skip("Skipping spoke gateway subnet group test as SKIP_SPOKE_GATEWAY_SUBNET_GROUP is set")
+func TestAviatrixSpokeExternalDeviceConn_basic(t *testing.T) {
+	var externalDeviceConn goaviatrix.ExternalDeviceConn
+
+	rName := random.UniqueId()
+	resourceName := "aviatrix_spoke_external_device_conn.test"
+
+	skipAcc := os.Getenv("SKIP_SPOKE_EXTERNAL_DEVICE_CONN")
+	if skipAcc == "yes" {
+		t.Skip("Skipping spoke external device connection tests as 'SKIP_SPOKE_EXTERNAL_DEVICE_CONN' is set")
 	}
 
-	resourceName := "aviatrix_spoke_gateway_subnet_group.test_group"
+	terraformOptions := &terraform.Options{
+		TerraformDir: ".",
+		Vars: map[string]interface{}{
+			"connection_name":   rName,
+			"aws_account_name":  fmt.Sprintf("tfa-%s", rName),
+			"vpc_id":            os.Getenv("AWS_VPC_ID"),
+			"vpc_reg":           os.Getenv("AWS_REGION"),
+			"aws_subnet":        os.Getenv("AWS_SUBNET"),
+			"bgp_local_as_num":  "123",
+			"bgp_remote_as_num": "345",
+			"remote_gateway_ip": "172.12.13.14",
+			"gw_name":           fmt.Sprintf("tfg-%s", rName),
+			"gw_size":           "t2.micro",
+		},
+	}
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckSpokeGatewaySubnetGroupDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccSpokeGatewaySubnetGroupBasic(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckSpokeGatewaySubnetGroupExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "name", "test-group"),
-					resource.TestCheckResourceAttr(resourceName, "gw_name", "test-spoke"),
-					testAccCheckSpokeGatewaySubnetGroupSubnetsMatch(resourceName, []string{"18.9.16.0/20~~test-vpc-Public-subnet-1", "18.9.32.0/20~~test-vpc-Private-subnet-1"}),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	if err := checkSpokeExternalDeviceConnExists(t, resourceName, &externalDeviceConn); err != nil {
+		t.Fatal(err)
+	}
+
+	expected := map[string]string{
+		"vpc_id":            os.Getenv("AWS_VPC_ID"),
+		"connection_name":   rName,
+		"gw_name":           fmt.Sprintf("tfg-%s", rName),
+		"connection_type":   "bgp",
+		"bgp_local_as_num":  "123",
+		"bgp_remote_as_num": "345",
+		"remote_gateway_ip": "172.12.13.14",
+	}
+
+	for key, value := range expected {
+		if externalDeviceConn.Get(key) != value {
+			t.Errorf("Output %s: expected %s, but got %s", key, value, externalDeviceConn.Get(key))
+		}
+	}
+}
+
+func checkSpokeExternalDeviceConnExists(t *testing.T, n string, externalDeviceConn *goaviatrix.ExternalDeviceConn) error {
+	client := goaviatrix.NewClient(goaviatrix.ClientConfig{
+		APIEndpoint:  os.Getenv("AVIATRIX_API_ENDPOINT"),
+		APIUsername:  os.Getenv("AVIATRIX_USERNAME"),
+		APIPassword:  os.Getenv("AVIATRIX_PASSWORD"),
+		APIToken:     os.Getenv("AVIATRIX_API_TOKEN"),
+		APIVersion:   os.Getenv("AVIATRIX_API_VERSION"),
+		LogLevel:     os.Getenv("AVIATRIX_LOG_LEVEL"),
+		LogFormatter: os.Getenv("AVIATRIX_LOG_FORMATTER"),
 	})
-}
 
-func testAccSpokeGatewaySubnetGroupBasic() string {
-	return fmt.Sprintf(`
-resource "aviatrix_account" "test_acc" {
-	account_name        = "tfa-azure"
-	cloud_type          = 8
-	arm_subscription_id = "%s"
-	arm_directory_id    = "%s"
-	arm_application_id  = "%s"
-	arm_application_key = "%s"
-}
-resource "aviatrix_vpc" "test_vpc" {
-	cloud_type           = 8
-	account_name         = aviatrix_account.test_acc.account_name
-	region               = "West US"
-	name                 = "test-vpc"
-	cidr                 = "18.9.0.0/16"
-	aviatrix_firenet_vpc = false
-}
-resource "aviatrix_spoke_gateway" "test_spoke" {
-	cloud_type   = 8
-	account_name = aviatrix_account.test_acc.account_name
-	gw_name      = "test-spoke"
-	vpc_id       = aviatrix_vpc.test_vpc.vpc_id
-	vpc_reg      = aviatrix_vpc.test_vpc.region
-	gw_size      = "Standard_B1ms"
-	subnet       = aviatrix_vpc.test_vpc.subnets[0].cidr
-}
-data "aviatrix_spoke_gateway_inspection_subnets" "test" {
-	gw_name = aviatrix_spoke_gateway.test_spoke.gw_name
-}
-resource "aviatrix_spoke_gateway_subnet_group" "test_group" {
-	name    = "test-group"
-	gw_name = aviatrix_spoke_gateway.test_spoke.gw_name 
-	subnets = [
-		data.aviatrix_spoke_gateway_inspection_subnets.test.subnets_for_inspection[0],
-		data.aviatrix_spoke_gateway_inspection_subnets.test.subnets_for_inspection[1]
-	]
-}
-    `, os.Getenv("ARM_SUBSCRIPTION_ID"), os.Getenv("ARM_DIRECTORY_ID"), os.Getenv("ARM_APPLICATION_ID"),
-		os.Getenv("ARM_APPLICATION_KEY"))
-}
+	state := terraform.GetState(t, &terraform.Options{TerraformDir: "."})
+
+	rs, ok := state.RootModule().Resources[n]
+	if !ok {
+		return fmt.Errorf("spoke external device connection Not found: %s", n
 
 func testAccCheckSpokeGatewaySubnetGroupExists(resourceName string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {

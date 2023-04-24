@@ -7,9 +7,11 @@ import (
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func preAzureSpokeNativePeeringCheck(t *testing.T, msgCommon string) {
@@ -38,6 +40,42 @@ func preAzureSpokeNativePeeringCheck(t *testing.T, msgCommon string) {
 		t.Fatal("Environment variable 'AZURE_SUBNET' is not set" + msgCommon)
 	}
 }
+
+func TestAccAviatrixAzureSpokeNativePeering_basic(t *testing.T) {
+	t.Parallel()
+
+	rName := random.UniqueId()
+	resourceName := fmt.Sprintf("aviatrix_azure_spoke_native_peering.test-%s", rName)
+
+	skipAcc := os.Getenv("SKIP_AZURE_SPOKE_NATIVE_PEERING")
+	if skipAcc == "yes" {
+		t.Skip("Skipping Aviatrix Azure spoke native peering tests as SKIP_AZURE_SPOKE_NATIVE_PEERING is set")
+	}
+
+	msgCommon := ". Set SKIP_AZURE_SPOKE_NATIVE_PEERING to yes to skip Azure spoke native peering tests"
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/azure_spoke_native_peering",
+		Vars: map[string]interface{}{
+			"account_name":        fmt.Sprintf("tf-%s", rName),
+			"gw_name":             fmt.Sprintf("tfg-%s", rName),
+			"vpc_id":              os.Getenv("AZURE_VNET_ID"),
+			"vpc_reg":             os.Getenv("AZURE_REGION"),
+			"gw_size":             os.Getenv("AZURE_GW_SIZE"),
+			"subnet":              os.Getenv("AZURE_SUBNET"),
+			"spoke_account_name":  fmt.Sprintf("tf-%s", rName),
+			"spoke_region":        os.Getenv("AZURE_REGION2"),
+			"spoke_vpc_id":        os.Getenv("AZURE_VNET_ID2"),
+			"transit_gateway_tag": fmt.Sprintf("aviatrix-tft-%s", rName),
+		},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	var azureSpokeNativePeering goaviatrix.AzureSpokeNativePeering
+	err := goaviatrix.GetResource
+
 
 func TestAccAviatrixAzureSpokeNativePeering_basic(t *testing.T) {
 	var azureSpokeNativePeering goaviatrix.AzureSpokeNativePeering

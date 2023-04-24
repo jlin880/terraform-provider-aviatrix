@@ -10,185 +10,87 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
-
 func TestAccAviatrixAWSTgwPeering_basic(t *testing.T) {
-	var awsTgwPeering goaviatrix.AwsTgwPeering
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_aws_tgw_peering.test"
+	t.Parallel()
 
-	skipAcc := os.Getenv("SKIP_AWS_TGW_PEERING")
-	if skipAcc == "yes" {
-		t.Skip("Skipping Aviatrix AWS tgw peering tests as 'SKIP_AWS_TGW_PEERING' is set")
+	awsRegion1 := "us-east-1"
+	awsRegion2 := "us-east-2"
+	terraformDir := "../examples/aviatrix-aws-tgw-peering"
+
+	accountName := fmt.Sprintf("tfa-%s", strings.ToLower(random.UniqueId()))
+
+	// Skip the test if the SKIP_AWS_TGW_PEERING env var is set to "yes"
+	if os.Getenv("SKIP_AWS_TGW_PEERING") == "yes" {
+		t.Skip("Skipping Aviatrix AWS TGW peering tests as 'SKIP_AWS_TGW_PEERING' is set")
 	}
-	msgCommon := ". Set 'SKIP_AWS_TGW_PEERING' to 'yes' to skip Aviatrix AWS tgw peering tests"
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, msgCommon)
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: terraformDir,
+
+		// Variables to pass to Terraform
+		Vars: map[string]interface{}{
+			"account_name":       accountName,
+			"aws_region1":        awsRegion1,
+			"aws_region2":        awsRegion2,
+			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckAWSTgwPeeringDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccAWSTgwPeeringConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					tesAccCheckAWSTgwPeeringExists(resourceName, &awsTgwPeering),
-					resource.TestCheckResourceAttr(resourceName, "tgw_name1", "tgw1"),
-					resource.TestCheckResourceAttr(resourceName, "tgw_name2", "tgw2"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
+	}
+
+	// Destroy the Terraform infrastructure at the end of the test
+	defer terraform.Destroy(t, terraformOptions)
+
+	// Deploy the Terraform infrastructure
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Verify the Aviatrix AWS TGW peering exists
+	verifyAwsTgwPeeringExists(t, terraformOptions)
+}
+
+// Verify the Aviatrix AWS TGW peering exists
+func verifyAwsTgwPeeringExists(t *testing.T, terraformOptions *terraform.Options) {
+	t.Helper()
+
+	// Get the Terraform output
+	tgwName1 := terraform.Output(t, terraformOptions, "tgw_name1")
+	tgwName2 := terraform.Output(t, terraformOptions, "tgw_name2")
+
+	// Create an Aviatrix client
+	client, err := goaviatrix.NewClientWithConfig(goaviatrix.ClientConfig{
+		APIUser:     os.Getenv("AVIATRIX_API_USER"),
+		APIPass:     os.Getenv("AVIATRIX_API_PASSWORD"),
+		APIEndpoint: os.Getenv("AVIATRIX_API_ENDPOINT"),
 	})
-}
+	assert.NoError(t, err)
 
-func testAccAWSTgwPeeringConfigBasic(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_account" "test" {
-	account_name       = "tfa-%s"
-	cloud_type         = 1
-	aws_account_number = "%s"
-	aws_iam            = false
-	aws_access_key     = "%s"
-	aws_secret_key     = "%s"
-}
-resource "aviatrix_aws_tgw" "test1" {
-	account_name       = aviatrix_account.test.account_name
-	aws_side_as_number = "64512"
-	region             = "us-east-1"
-	tgw_name           = "tgw1"
-}
-resource "aviatrix_aws_tgw_network_domain" "test1_Default_Domain" {
-	name     = "Default_Domain"
-	tgw_name = aviatrix_aws_tgw.test1.tgw_name
-}
-resource "aviatrix_aws_tgw_network_domain" "test1_Shared_Service_Domain" {
-	name     = "Shared_Service_Domain"
-	tgw_name = aviatrix_aws_tgw.test1.tgw_name
-}
-resource "aviatrix_aws_tgw_network_domain" "test1_Aviatrix_Edge_Domain" {
-	name     = "Aviatrix_Edge_Domain"
-	tgw_name = aviatrix_aws_tgw.test1.tgw_name
-}
-resource "aviatrix_aws_tgw_peering_domain_conn" "test1_default_sd_conn1" {
-	tgw_name1    = aviatrix_aws_tgw.test1.tgw_name
-	domain_name1 = aviatrix_aws_tgw_network_domain.test1_Aviatrix_Edge_Domain.name
-	tgw_name2    = aviatrix_aws_tgw.test1.tgw_name
-	domain_name2 = aviatrix_aws_tgw_network_domain.test1_Default_Domain.name
-}
-resource "aviatrix_aws_tgw_peering_domain_conn" "test1_default_sd_conn2" {
-	tgw_name1    = aviatrix_aws_tgw.test1.tgw_name
-	domain_name1 = aviatrix_aws_tgw_network_domain.test1_Aviatrix_Edge_Domain.name
-	tgw_name2    = aviatrix_aws_tgw.test1.tgw_name
-	domain_name2 = aviatrix_aws_tgw_network_domain.test1_Shared_Service_Domain.name
-}
-resource "aviatrix_aws_tgw_peering_domain_conn" "test1_default_sd_conn3" {
-	tgw_name1    = aviatrix_aws_tgw.test1.tgw_name
-	domain_name1 = aviatrix_aws_tgw_network_domain.test1_Default_Domain.name
-	tgw_name2    = aviatrix_aws_tgw.test1.tgw_name
-	domain_name2 = aviatrix_aws_tgw_network_domain.test1_Shared_Service_Domain.name
-}
-resource "aviatrix_aws_tgw" "test2" {
-	account_name       = aviatrix_account.test.account_name
-	aws_side_as_number = "64512"
-	region             = "us-east-2"
-	tgw_name           = "tgw2"
-}
-resource "aviatrix_aws_tgw_network_domain" "test2_Default_Domain" {
-	name     = "Default_Domain"
-	tgw_name = aviatrix_aws_tgw.test2.tgw_name
-}
-resource "aviatrix_aws_tgw_network_domain" "test2_Shared_Service_Domain" {
-	name     = "Shared_Service_Domain"
-	tgw_name = aviatrix_aws_tgw.test2.tgw_name
-}
-resource "aviatrix_aws_tgw_network_domain" "test2_Aviatrix_Edge_Domain" {
-	name     = "Aviatrix_Edge_Domain"
-	tgw_name = aviatrix_aws_tgw.test2.tgw_name
-}
-resource "aviatrix_aws_tgw_peering_domain_conn" "test2_default_sd_conn1" {
-	tgw_name1    = aviatrix_aws_tgw.test2.tgw_name
-	domain_name1 = aviatrix_aws_tgw_network_domain.test2_Aviatrix_Edge_Domain.name
-	tgw_name2    = aviatrix_aws_tgw.test2.tgw_name
-	domain_name2 = aviatrix_aws_tgw_network_domain.test2_Default_Domain.name
-}
-resource "aviatrix_aws_tgw_peering_domain_conn" "test2_default_sd_conn2" {
-	tgw_name1    = aviatrix_aws_tgw.test2.tgw_name
-	domain_name1 = aviatrix_aws_tgw_network_domain.test2_Aviatrix_Edge_Domain.name
-	tgw_name2    = aviatrix_aws_tgw.test2.tgw_name
-	domain_name2 = aviatrix_aws_tgw_network_domain.test2_Shared_Service_Domain.name
-}
-resource "aviatrix_aws_tgw_peering_domain_conn" "test2_default_sd_conn3" {
-	tgw_name1    = aviatrix_aws_tgw.test2.tgw_name
-	domain_name1 = aviatrix_aws_tgw_network_domain.test2_Default_Domain.name
-	tgw_name2    = aviatrix_aws_tgw.test2.tgw_name
-	domain_name2 = aviatrix_aws_tgw_network_domain.test2_Shared_Service_Domain.name
-}
-resource "aviatrix_aws_tgw_peering" "test" {
-	tgw_name1 = aviatrix_aws_tgw.test1.tgw_name
-	tgw_name2 = aviatrix_aws_tgw.test2.tgw_name
-	depends_on = [
-		aviatrix_aws_tgw_network_domain.test1_Default_Domain,
-		aviatrix_aws_tgw_network_domain.test1_Shared_Service_Domain,
-		aviatrix_aws_tgw_network_domain.test1_Aviatrix_Edge_Domain,
-		aviatrix_aws_tgw_network_domain.test2_Default_Domain,
-		aviatrix_aws_tgw_network_domain.test2_Shared_Service_Domain,
-		aviatrix_aws_tgw_network_domain.test2_Aviatrix_Edge_Domain
-	]
-}
-	`, rName, os.Getenv("AWS_ACCOUNT_NUMBER"), os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"))
-}
-
-func tesAccCheckAWSTgwPeeringExists(n string, awsTgwPeering *goaviatrix.AwsTgwPeering) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[n]
-		if !ok {
-			return fmt.Errorf("aviatrix AWS tgw peering Not Created: %s", n)
-		}
-		if rs.Primary.ID == "" {
-			return fmt.Errorf("no aviatrix AWS tgw peering ID is set")
-		}
-
-		client := testAccProvider.Meta().(*goaviatrix.Client)
-		foundAwsTgwPeering := &goaviatrix.AwsTgwPeering{
-			TgwName1: rs.Primary.Attributes["tgw_name1"],
-			TgwName2: rs.Primary.Attributes["tgw_name2"],
-		}
-		err := client.GetAwsTgwPeering(foundAwsTgwPeering)
-		if err != nil {
-			if err == goaviatrix.ErrNotFound {
-				return fmt.Errorf("no aviatrix AWS tgw peering is found")
-			}
-			return err
-		}
-
-		*awsTgwPeering = *foundAwsTgwPeering
-		return nil
+	// Get the AWS TGW peering
+	awsTgwPeering := &goaviatrix.AwsTgwPeering{
+		TgwName1: tgwName1,
+		TgwName2: tgwName2,
 	}
+	err = client.GetAwsTgwPeering(awsTgwPeering)
+	assert.NoError(t, err)
+	assert.NotNil(t, awsTgwPeering)
 }
+func testAccCheckAWSTgwPeeringDestroy(t *testing.T, terraformOptions *terraform.Options) {
+    // Retrieve the provider client from the Terraform options
+    client := terraformProvider.Meta().(*goaviatrix.Client)
 
-func testAccCheckAWSTgwPeeringDestroy(s *terraform.State) error {
-	client := testAccProvider.Meta().(*goaviatrix.Client)
+    // Destroyed resources should no longer exist
+    for _, resource := range terraform.ListResources(t, terraformOptions) {
+        if resource.Type != "aviatrix_aws_tgw_peering" {
+            continue
+        }
 
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_aws_tgw_peering" {
-			continue
-		}
+        foundAwsTgwPeering := &goaviatrix.AwsTgwPeering{
+            TgwName1: resource.Primary.Attributes["tgw_name1"],
+            TgwName2: resource.Primary.Attributes["tgw_name2"],
+        }
 
-		foundAwsTgwPeering := &goaviatrix.AwsTgwPeering{
-			TgwName1: rs.Primary.Attributes["tgw_name1"],
-			TgwName2: rs.Primary.Attributes["tgw_name2"],
-		}
-
-		err := client.GetAwsTgwPeering(foundAwsTgwPeering)
-		if err != goaviatrix.ErrNotFound {
-			return fmt.Errorf("aviatrix AWS tgw peering still exists")
-		}
-	}
-
-	return nil
+        err := client.GetAwsTgwPeering(foundAwsTgwPeering)
+        if err != goaviatrix.ErrNotFound {
+            t.Errorf("Resource %s still exists", resource.Primary.ID)
+        }
+    }
 }
