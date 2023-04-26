@@ -1,12 +1,14 @@
-package aviatrix
+package test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
@@ -15,7 +17,7 @@ import (
 func TestAccAviatrixRbacGroupUserAttachment_basic(t *testing.T) {
 	var rbacGroupUserAttachment goaviatrix.RbacGroupUserAttachment
 
-	rName := acctest.RandString(5)
+	rName := random.UniqueId()
 
 	skipAcc := os.Getenv("SKIP_RBAC_GROUP_USER_ATTACHMENT")
 	if skipAcc == "yes" {
@@ -71,7 +73,7 @@ func testAccCheckRbacGroupUserAttachmentExists(n string, rAttachment *goaviatrix
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[n]
 		if !ok {
-			return fmt.Errorf("RbacGroupUserAttachment Not found: %s", n)
+			return fmt.Errorf("RbacGroupUserAttachment not found: %s", n)
 		}
 		if rs.Primary.ID == "" {
 			return fmt.Errorf("no RbacGroupUserAttachment ID is set")
@@ -88,6 +90,8 @@ func testAccCheckRbacGroupUserAttachmentExists(n string, rAttachment *goaviatrix
 		if err != nil {
 			return err
 		}
+		if foundAttachment2.GroupName != rs.Primary.Attributes["group_name"] {
+			return fmt.Errorf("'group_name
 		if foundAttachment2.GroupName != rs.Primary.Attributes["group_name"] {
 			return fmt.Errorf("'group_name' Not found in created attributes")
 		}

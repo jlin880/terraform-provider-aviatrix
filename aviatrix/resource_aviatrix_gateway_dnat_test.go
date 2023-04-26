@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
@@ -6,10 +6,71 @@ import (
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
+
+func TestAccAviatrixGatewayDNat_basic(t *testing.T) {
+	var gateway goaviatrix.Gateway
+
+	rName := random.UniqueId()
+	msgCommon := ". Set SKIP_GATEWAY_DNAT to yes to skip gateway DNAT tests"
+
+	skipDNat := os.Getenv("SKIP_GATEWAY_DNAT")
+	skipDNatAWS := os.Getenv("SKIP_GATEWAY_DNAT_AWS")
+	skipDNatAZURE := os.Getenv("SKIP_GATEWAY_DNAT_AZURE")
+
+	if skipDNat == "yes" {
+		t.Skip("Skipping gateway destination NAT tests as SKIP_GATEWAY_DNAT is set")
+	}
+	if skipDNatAWS == "yes" && skipDNatAZURE == "yes" {
+		t.Skip("Skipping gateway destination NAT tests as SKIP_GATEWAY_DNAT_AWS and SKIP_GATEWAY_DNAT_AZURE " +
+			"are all set, even though SKIP_GATEWAY_DNAT isn't set")
+	}
+
+	if skipDNatAWS == "yes" {
+		t.Log("Skipping AWS gateway destination NAT tests as SKIP_GATEWAY_DNAT_AWS is set")
+	} else {
+		terraformOptions, err := prepareGatewayDNatTerraformOptionsAWS(rName)
+		if err != nil {
+			t.Fatalf("Failed to prepare Terraform options: %v", err)
+		}
+
+		defer terraform.Destroy(t, terraformOptions)
+
+		terraform.InitAndApply(t, terraformOptions)
+
+		err = checkGatewayDNatExists(t, "aviatrix_gateway_dnat.test", &gateway)
+		assert.NoError(t, err)
+
+		assert.Equal(t, fmt.Sprintf("tfg-aws-%s", rName), gateway.GwName)
+		assert.Equal(t, 1, len(gateway.DnatPolicy))
+		assert.Equal(t, "tcp", gateway.DnatPolicy[0].Protocol)
+		assert.Equal(t, "12", gateway.DnatPolicy[0].DnatPort)
+
+		importedTerraformOptions, err := prepareGatewayDNatImportTerraformOptionsAWS(&gateway)
+		if err != nil {
+			t.Fatalf("Failed to prepare Terraform options: %v", err)
+		}
+
+		resource.Test(t, resource.TestCase{
+			Providers:    testAccProviders,
+			CheckDestroy: testAccCheckGatewayDNatDestroy,
+			Steps: []resource.TestStep{
+				{
+					Config: terraform.FormatConfig(terraformOptions),
+					Check: resource.ComposeTestCheckFunc(
+						testAccCheckGatewayDNatExists("aviatrix_gateway_dnat.test", &gateway),
+						resource.TestCheckResourceAttr("aviatrix_gateway_dnat.test", "gw_name", fmt.Sprintf("tfg-aws-%s", rName)),
+						resource.TestCheckResourceAttr("aviatrix_gateway_dnat.test", "dnat_policy.#", "1"),
+						resource.TestCheckResourceAttr("aviatrix_gateway_dnat.test", "dnat_policy.0.protocol", "tcp"),
+						resource.TestCheckResourceAttr("aviatrix_gateway_dnat.test", "dnat_policy.0.dnat_port", "12"),
+					),
+				},
+				{
+					Config:            terraform.Format
 
 func TestAccAviatrixGatewayDNat_basic(t *testing.T) {
 	var gateway goaviatrix.Gateway

@@ -1,66 +1,53 @@
-package aviatrix
+package test
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"testing"
 
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/stretchr/testify/assert"
+
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/terraform_testing"
 )
 
-func preSamlEndpointCheck(t *testing.T, msgCommon string) {
-	preAccountCheck(t, msgCommon)
+func TestAccAviatrixSamlEndpoint(t *testing.T) {
+	t.Parallel()
 
-	idpMetadata := os.Getenv("IDP_METADATA")
-	if idpMetadata == "" {
-		t.Fatal("Environment variable IDP_METADATA is not set" + msgCommon)
-	}
-	idpMetadataType := os.Getenv("IDP_METADATA_TYPE")
-	if idpMetadataType == "" {
-		t.Fatal("Environment variable IDP_METADATA_TYPE is not set" + msgCommon)
-	}
-}
-
-func TestAccAviatrixSamlEndpoint_basic(t *testing.T) {
 	var samlEndpoint goaviatrix.SamlEndpoint
-	idpMetadata := os.Getenv("IDP_METADATA")
-	idpMetadataType := os.Getenv("IDP_METADATA_TYPE")
-	rName := acctest.RandString(5)
+	idpMetadata := "https://idp.example.com/metadata"
+	idpMetadataType := "PingFederate"
+	rName := fmt.Sprintf("test-%s", random.UniqueId())
+
 	resourceName := "aviatrix_saml_endpoint.foo"
-
-	skipAcc := os.Getenv("SKIP_SAML_ENDPOINT")
-	if skipAcc == "yes" {
-		t.Skip("Skipping Aviatrix SAML Endpoint test as SKIP_SAML_ENDPOINT is set")
+	terraformOptions := &terraform.Options{
+		TerraformDir: ".",
+		Vars: map[string]interface{}{
+			"endpoint_name":     rName,
+			"idp_metadata":      idpMetadata,
+			"idp_metadata_type": idpMetadataType,
+		},
 	}
-	msgCommon := ". Set SKIP_SAML_ENDPOINT to yes to skip Aviatrix SAML Endpoint tests"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preSamlEndpointCheck(t, msgCommon)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckSamlEndpointDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccSamlEndpointConfigBasic(rName, idpMetadata, idpMetadataType),
-				Check: resource.ComposeTestCheckFunc(
-					tesAccCheckSamlEndpointExists("aviatrix_saml_endpoint.foo", &samlEndpoint),
-					resource.TestCheckResourceAttr(resourceName, "endpoint_name", rName),
-					resource.TestCheckResourceAttr(resourceName, "idp_metadata", idpMetadata),
-					resource.TestCheckResourceAttr(resourceName, "idp_metadata_type", idpMetadataType),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	defer terraform.Destroy(t, terraformOptions)
+	terraform.InitAndApply(t, terraformOptions)
+
+	checkResourceAttrs(t, terraformOptions, resourceName, rName, idpMetadata, idpMetadataType)
+
+	state := terraform_testing.LoadStateFromFile(t, terraformOptions.StateFile)
+
+	resourceChecks := []resource.TestCheckFunc{
+		tesAccCheckSamlEndpointExists(resourceName, &samlEndpoint),
+	}
+
+	for _, resourceCheck := range resourceChecks {
+		err := resourceCheck(state)
+		assert.NoError(t, err)
+	}
 }
 
 func testAccSamlEndpointConfigBasic(rName string, idpMetadata string, idpMetadataType string) string {
@@ -77,10 +64,10 @@ func tesAccCheckSamlEndpointExists(n string, samlEndpoint *goaviatrix.SamlEndpoi
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[n]
 		if !ok {
-			return fmt.Errorf("aviatrix Saml Endpoint Not Created: %s", n)
+			return fmt.Errorf("aviatrix SAML endpoint not found: %s", n)
 		}
 		if rs.Primary.ID == "" {
-			return fmt.Errorf("no aviatrix Saml Endpoint ID is set")
+			return fmt.Errorf("no aviatrix SAML endpoint ID is set")
 		}
 
 		client := testAccProvider.Meta().(*goaviatrix.Client)
@@ -94,7 +81,7 @@ func tesAccCheckSamlEndpointExists(n string, samlEndpoint *goaviatrix.SamlEndpoi
 			return err
 		}
 		if foundSamlEndpoint.EndPointName != rs.Primary.Attributes["endpoint_name"] {
-			return fmt.Errorf("endpoint_name Not found in created attributes")
+			return fmt.Errorf("endpoint_name not found in created attributes")
 		}
 
 		*samlEndpoint = *foundSamlEndpoint
@@ -103,22 +90,28 @@ func tesAccCheckSamlEndpointExists(n string, samlEndpoint *goaviatrix.SamlEndpoi
 	}
 }
 
-func testAccCheckSamlEndpointDestroy(s *terraform.State) error {
+func testAccCheckSamlEndpointDestroy(t *testing.T, terraformOptions *terraform.Options) {
 	client := testAccProvider.Meta().(*goaviatrix.Client)
 
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_saml_endpoint" {
+	for _, resourceName := range terraform.GetResourceNames(t, terraformOptions) {
+		if resourceName != "aviatrix_saml_endpoint.foo" {
 			continue
 		}
 
+		resourceInstanceState := terraform.InstanceState{
+			ID: resourceName,
+			Attributes: map[string]string{
+				"endpoint_name": terraform.Output(t, terraformOptions, "endpoint_name"),
+			},
+		}
+
 		foundSamlEndpoint := &goaviatrix.SamlEndpoint{
-			EndPointName: rs.Primary.Attributes["endpoint_name"],
+			EndPointName: resourceInstanceState.Attributes["endpoint_name"],
 		}
 
 		_, err := client.GetSamlEndpoint(foundSamlEndpoint)
 		if err != goaviatrix.ErrNotFound {
-			return fmt.Errorf("aviatrix Saml Endpoint still exists")
+			t.Errorf("aviatrix Saml Endpoint still exists")
 		}
 	}
-	return nil
 }

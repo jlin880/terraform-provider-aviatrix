@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
@@ -6,54 +6,58 @@ import (
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixFQDN_basic(t *testing.T) {
 	var fqdn goaviatrix.FQDN
 
-	rName := acctest.RandString(5)
+	rName := random.UniqueId()
 
 	skipAcc := os.Getenv("SKIP_FQDN")
 	if skipAcc == "yes" {
 		t.Skip("Skipping FQDN test as SKIP_FQDN is set")
 	}
 
+	tfOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"resource_name": "tff-" + rName,
+			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key": os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key": os.Getenv("AWS_SECRET_KEY"),
+			"aws_vpc_id": os.Getenv("AWS_VPC_ID"),
+			"aws_region": os.Getenv("AWS_REGION"),
+			"aws_subnet": os.Getenv("AWS_SUBNET"),
+			"gateway_name": "tfg-" + rName,
+		},
+	}
+
+	defer terraform.Destroy(t, tfOptions)
+
+	terraform.InitAndApply(t, tfOptions)
+
 	resourceName := "aviatrix_fqdn.foo"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preGatewayCheck(t, ". Set SKIP_FQDN to yes to skip FQDN tests")
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckFQDNDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccFQDNConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckFQDNExists(resourceName, &fqdn),
-					resource.TestCheckResourceAttr(resourceName, "fqdn_tag", fmt.Sprintf("tff-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "fqdn_enabled", "true"),
-					resource.TestCheckResourceAttr(resourceName, "fqdn_mode", "white"),
-					resource.TestCheckResourceAttr(resourceName, "gw_filter_tag_list.#", "1"),
-					resource.TestCheckResourceAttr(resourceName, "gw_filter_tag_list.0.gw_name", fmt.Sprintf("tfg-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "domain_names.#", "1"),
-					resource.TestCheckResourceAttr(resourceName, "domain_names.0.fqdn", "facebook.com"),
-					resource.TestCheckResourceAttr(resourceName, "domain_names.0.proto", "tcp"),
-					resource.TestCheckResourceAttr(resourceName, "domain_names.0.port", "443"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	err := terraform.OutputStruct("fqdn", &fqdn)
+	assert.NoError(t, err)
+
+	expectedFqdn := fmt.Sprintf("facebook.com;tcp;443")
+
+	assert.Equal(t, fqdn.FQDNTag, "tff-"+rName)
+	assert.Equal(t, fqdn.FQDNMode, "white")
+	assert.Equal(t, fqdn.FQDNEnabled, true)
+	assert.Equal(t, fqdn.GWFilterTagList[0].GWName, "tfg-"+rName)
+	assert.Equal(t, fqdn.DomainNames[0].FQDN, expectedFqdn)
+
+	// Import the FQDN resource and check that the imported state matches the current state.
+	importedResource := terraform.ImportState(t, tfOptions, resourceName)
+	assert.Equal(t, fqdn.FQDNTag, importedResource.Primary.ID)
 }
+
 
 func testAccFQDNConfigBasic(rName string) string {
 	return fmt.Sprintf(`

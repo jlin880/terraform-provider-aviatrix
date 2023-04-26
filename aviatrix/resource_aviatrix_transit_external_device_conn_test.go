@@ -1,15 +1,14 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
 	"os"
 	"testing"
 
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
+	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/gruntwork-io/terratest/modules/terraform"
 )
 
 func TestAccAviatrixTransitExternalDeviceConn_basic(t *testing.T) {
@@ -63,7 +62,6 @@ func TestAccAviatrixTransitExternalDeviceConn_basic(t *testing.T) {
 	assert.Equal(t, "345", importedResource.Get("bgp_remote_as_num").(string))
 	assert.Equal(t, "172.12.13.14", importedResource.Get("remote_gateway_ip").(string))
 }
-
 func testAccTransitExternalDeviceConnConfigBasic(rName string) string {
 	return fmt.Sprintf(`
 resource "aviatrix_account" "test" {
