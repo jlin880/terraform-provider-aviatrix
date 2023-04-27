@@ -1,16 +1,56 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
 )
 
 func TestAccDataSourceAviatrixNetworkDomains_basic(t *testing.T) {
-	rName := acctest.RandString(5)
+	rName := random.UniqueId()
+	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	tgwName := random.UniqueId()[:5] + random.RandomStringFromSet(5, charset)
+	awsSideAsNumber := "64512"
+	ndName := random.UniqueId()[:5] + random.RandomStringFromSet(5, charset)
+	resourceName := "data.aviatrix_network_domains.test"
+
+	skipAcc := os.Getenv("SKIP_DATA_NETWORK_DOMAINS")
+	if skipAcc == "yes" {
+		t.Skip("Skipping Data Source All Network Domains tests as SKIP_DATA_NETWORK_DOMAINS is set")
+	}
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/data-sources/network_domains",
+		Vars: map[string]interface{}{
+			"rName":             rName,
+			"tgwName":           tgwName,
+			"awsSideAsNumber":   awsSideAsNumber,
+			"ndName":            ndName,
+			"awsAccountNumber":  os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"awsAccessKey":      os.Getenv("AWS_ACCESS_KEY"),
+			"awsSecretKey":      os.Getenv("AWS_SECRET_KEY"),
+			"aviatrixVersion":   os.Getenv("AVIATRIX_VERSION"),
+			"controllerAccount": os.Getenv("AVIATRIX_CONTROLLER_ACCOUNT"),
+		},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	terraform.Output(t, terraformOptions, "aws_tgw_network_domain_id")
+
+	testResourceExists(t, resourceName, tgwName, ndName)
+}
+
+func TestAccDataSourceAviatrixNetworkDomains_basic(t *testing.T) {
+	t.Parallel()
+
+	rName := randomUniqueName()
 	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	tgwName := acctest.RandStringFromCharSet(5, charset) + acctest.RandString(5)
 	awsSideAsNumber := "64512"
@@ -22,10 +62,26 @@ func TestAccDataSourceAviatrixNetworkDomains_basic(t *testing.T) {
 		t.Skip("Skipping Data Source All Network Domains tests as SKIP_DATA_NETWORK_DOMAINS is set")
 	}
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/data-sources/network_domains",
+		Vars: map[string]interface{}{
+			"account_name":             fmt.Sprintf("tfa-%s", rName),
+			"aws_account_number":       os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key":           os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":           os.Getenv("AWS_SECRET_KEY"),
+			"aws_side_as_number":       awsSideAsNumber,
+			"aws_region":               "us-west-1",
+			"tgw_name":                 tgwName,
+			"network_domain_name":      ndName,
+			"enable_controller_vpc_dns": false,
 		},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	resource.Check(t, resource.TestCase{
 		Providers: testAccProviders,
 		Steps: []resource.TestStep{
 			{
@@ -42,6 +98,38 @@ func TestAccDataSourceAviatrixNetworkDomains_basic(t *testing.T) {
 		},
 	})
 }
+
+func testAccDataSourceAviatrixNetworkDomainsConfigBasic(rName string, tgwName string, awsSideAsNumber string, ndName string) string {
+	return fmt.Sprintf(`
+variable "account_name" {}
+variable "aws_account_number" {}
+variable "aws_access_key" {}
+variable "aws_secret_key" {}
+variable "aws_side_as_number" {}
+variable "aws_region" {}
+variable "tgw_name" {}
+variable "network_domain_name" {}
+variable "enable_controller_vpc_dns" {}
+
+provider "aviatrix" {
+  account_name = var.account_name
+  aws_account_number = var.aws_account_number
+  aws_access_key = var.aws_access_key
+  aws_secret_key = var.aws_secret_key
+}
+
+provider "aws" {
+  region = var.aws_region
+}
+
+resource "aviatrix_account" "test" {
+	account_name       = var.account_name
+	cloud_type         = 1
+	aws_account_number = var.aws_account_number
+	aws_iam            = false
+	aws_access_key     = var.aws_access_key
+	aws_secret_key     = var
+
 
 func testAccDataSourceAviatrixNetworkDomainsConfigBasic(rName string, tgwName string, awsSideAsNumber string, ndName string) string {
 	return fmt.Sprintf(`

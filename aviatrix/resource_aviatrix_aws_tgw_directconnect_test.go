@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
@@ -6,16 +6,16 @@ import (
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixAwsTgwDirectConnect_basic(t *testing.T) {
 	var awsTgwDirectConnect goaviatrix.AwsTgwDirectConnect
 
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_aws_tgw_directconnect.test"
+	rName := random.UniqueId()
 
 	skipAcc := os.Getenv("SKIP_AWS_TGW_DIRECTCONNECT")
 	if skipAcc == "yes" {
@@ -26,33 +26,46 @@ func TestAccAviatrixAwsTgwDirectConnect_basic(t *testing.T) {
 
 	awsSideAsNumber := "12"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, msg)
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/aws_tgw_directconnect",
+
+		Vars: map[string]interface{}{
+			"account_name":        fmt.Sprintf("tfa-%s", rName),
+			"aws_account_number":  os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key":      os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":      os.Getenv("AWS_SECRET_KEY"),
+			"aws_region":          os.Getenv("AWS_REGION"),
+			"dx_gateway_id":       os.Getenv("AWS_DX_GATEWAY_ID"),
+			"tgw_name":            fmt.Sprintf("tft-%s", rName),
+			"aws_side_as_number":  awsSideAsNumber,
+			"network_domain_name": "Default_Domain",
+			"allowed_prefix":      "10.12.0.0/24",
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckAwsTgwDirectConnectDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccAwsTgwDirectConnectConfigBasic(rName, awsSideAsNumber),
-				Check: resource.ComposeTestCheckFunc(
-					tesAccCheckAwsTgwDirectConnectExists(resourceName, &awsTgwDirectConnect),
-					resource.TestCheckResourceAttr(resourceName, "tgw_name", fmt.Sprintf("tft-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "directconnect_account_name", fmt.Sprintf("tfa-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "dx_gateway_id", os.Getenv("AWS_DX_GATEWAY_ID")),
-					resource.TestCheckResourceAttr(resourceName, "network_domain_name", "Default_Domain"),
-					resource.TestCheckResourceAttr(resourceName, "allowed_prefix", "10.12.0.0/24"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	resourceName := "aviatrix_aws_tgw_directconnect.test"
+	assert.True(t, terraform.ResourceExists(t, resourceName))
+
+	// Get the created AWS TGW Direct Connect
+	client := testAccProvider.Meta().(*goaviatrix.Client)
+	foundAwsTgwDirectConnect := &goaviatrix.AwsTgwDirectConnect{
+		TgwName:     terraform.Output(t, terraformOptions, "tgw_name").(string),
+		DxGatewayID: terraform.Output(t, terraformOptions, "dx_gateway_id").(string),
+	}
+	foundAwsTgwDirectConnect2, err := client.GetAwsTgwDirectConnect(foundAwsTgwDirectConnect)
+	assert.NoError(t, err)
+
+	// Check that the created AWS TGW Direct Connect has the expected attributes
+	assert.Equal(t, foundAwsTgwDirectConnect2.TgwName, terraform.Output(t, terraformOptions, "tgw_name").(string))
+	assert.Equal(t, foundAwsTgwDirectConnect2.DxGatewayID, terraform.Output(t, terraformOptions, "dx_gateway_id").(string))
+
+	awsTgwDirectConnect = *foundAwsTgwDirectConnect
 }
+
 
 func testAccAwsTgwDirectConnectConfigBasic(rName string, awsSideAsNumber string) string {
 	return fmt.Sprintf(`

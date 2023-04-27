@@ -16,7 +16,7 @@ func TestAccDataSourceAviatrixVpcTracker_basic(t *testing.T) {
 	resourceName := "data.aviatrix_vpc_tracker.test"
 
 	// Set up Terraform options
-	terraformOptions := &terraform.Options{
+	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
 		// The path to where our Terraform code is located
 		TerraformDir: "../examples/data-sources/aviatrix_vpc_tracker",
 
@@ -24,7 +24,7 @@ func TestAccDataSourceAviatrixVpcTracker_basic(t *testing.T) {
 		Vars: map[string]interface{}{
 			"prefix": uniqueID,
 		},
-	}
+	})
 
 	// Clean up resources after test is complete
 	defer terraform.Destroy(t, terraformOptions)

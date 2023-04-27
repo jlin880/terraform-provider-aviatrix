@@ -1,15 +1,16 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/Azure/go-autorest/autorest/to"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixAwsTgwConnect_basic(t *testing.T) {
@@ -17,36 +18,60 @@ func TestAccAviatrixAwsTgwConnect_basic(t *testing.T) {
 		t.Skip("Skipping AWS TGW Connect test as SKIP_AWS_TGW_CONNECT is set")
 	}
 
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_aws_tgw_connect.test_aws_tgw_connect"
+	rName := strings.ToLower(random.UniqueId())
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, " Set SKIP_AWS_TGW_CONNECT to skip this test.")
-			if os.Getenv("AWS_REGION") == "" {
-				t.Fatalf("")
-			}
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"aws_region": os.Getenv("AWS_REGION"),
+			"prefix":     rName,
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckAwsTgwConnectDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccAwsTgwConnectBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckAwsTgwConnectExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "tgw_name", "aws-tgw-"+rName),
-					resource.TestCheckResourceAttr(resourceName, "connection_name", "aws-tgw-connect-"+rName),
-					resource.TestCheckResourceAttr(resourceName, "network_domain_name", "Shared_Service_Domain"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Check that the Aviatrix AWS TGW Connect resource was created successfully
+	resourceName := "aviatrix_aws_tgw_connect.test_aws_tgw_connect"
+	assert.True(t, terraform.ResourceExists(t, terraformOptions, resourceName))
+
+	// Check the attributes of the Aviatrix AWS TGW Connect resource
+	expectedAttributes := map[string]string{
+		"tgw_name":            fmt.Sprintf("aws-tgw-%s", rName),
+		"connection_name":     fmt.Sprintf("aws-tgw-connect-%s", rName),
+		"network_domain_name": "Shared_Service_Domain",
+	}
+	for key, value := range expectedAttributes {
+		actualValue := terraform.Output(t, terraformOptions, key)
+		assert.Equal(t, value, actualValue)
+	}
+
+	// Import the Aviatrix AWS TGW Connect resource into Terraform state
+	importedTerraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		ImportState:  true,
+		State:        terraform.StateFromTerraformPlan(t, terraformOptions),
+		Vars: map[string]interface{}{
+			"aws_region": os.Getenv("AWS_REGION"),
+			"prefix":     rName,
 		},
-	})
+	}
+
+	terraform.Import(t, importedTerraformOptions)
+
+	// Check that the imported Aviatrix AWS TGW Connect resource matches the Terraform state
+	importedResourceName := "aviatrix_aws_tgw_connect.test_aws_tgw_connect"
+	importedResource := terraform.ReadStateResource(t, importedTerraformOptions, importedResourceName)
+	expectedAttributes = map[string]string{
+		"tgw_name":            fmt.Sprintf("aws-tgw-%s", rName),
+		"connection_name":     fmt.Sprintf("aws-tgw-connect-%s", rName),
+		"network_domain_name": "Shared_Service_Domain",
+	}
+	for key, value := range expectedAttributes {
+		actualValue := importedResource.Primary.Attributes[key]
+		assert.Equal(t, value, actualValue)
+	}
 }
 
 func testAccAwsTgwConnectBasic(rName string) string {
