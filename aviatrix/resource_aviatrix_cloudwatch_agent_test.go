@@ -1,4 +1,3 @@
-
 import (
 	"context"
 	"fmt"
@@ -16,6 +15,8 @@ func TestAccAviatrixCloudwatchAgent_basic(t *testing.T) {
 		t.Skip("Skipping cloudwatch agent test as SKIP_CLOUDWATCH_AGENT is set")
 	}
 
+	ctx := context.Background()
+
 	terraformOptions := prepareCloudwatchAgentTest(t)
 	resourceName := "aviatrix_cloudwatch_agent.test_cloudwatch_agent"
 
@@ -23,7 +24,7 @@ func TestAccAviatrixCloudwatchAgent_basic(t *testing.T) {
 
 	terraform.InitAndApply(t, terraformOptions)
 
-	checkCloudwatchAgentResource(t, terraformOptions, resourceName)
+	checkCloudwatchAgentResource(t, ctx, terraformOptions, resourceName)
 	importedResourceName := importCloudwatchAgentResource(t, terraformOptions, resourceName)
 
 	assert.Equal(t, resourceName, importedResourceName)
@@ -47,10 +48,10 @@ func prepareCloudwatchAgentTest(t *testing.T) *terraform.Options {
 	return terraformOptions
 }
 
-func checkCloudwatchAgentResource(t *testing.T, terraformOptions *terraform.Options, resourceName string) {
+func checkCloudwatchAgentResource(t *testing.T, ctx context.Context, terraformOptions *terraform.Options, resourceName string) {
 	client := testAccProvider.Meta().(*goaviatrix.Client)
 
-	resp, err := client.GetCloudwatchAgentStatus()
+	resp, err := client.GetCloudwatchAgentStatusWithContext(ctx)
 	assert.NoError(t, err)
 	assert.True(t, resp.ExcludedGateways != nil)
 	assert.Equal(t, terraformOptions.Vars["region"], resp.Region)
@@ -76,6 +77,8 @@ func TestAccAviatrixCloudwatchAgent_import(t *testing.T) {
 		t.Skip("Skipping cloudwatch agent test as SKIP_CLOUDWATCH_AGENT is set")
 	}
 
+	ctx := context.Background()
+
 	terraformOptions := prepareCloudwatchAgentTest(t)
 	resourceName := "aviatrix_cloudwatch_agent.test_cloudwatch_agent"
 
@@ -87,6 +90,7 @@ func TestAccAviatrixCloudwatchAgent_import(t *testing.T) {
 
 	assert.Equal(t, resourceName, importedResourceName)
 }
+
 
 
 func testAccCloudwatchAgentBasic() string {

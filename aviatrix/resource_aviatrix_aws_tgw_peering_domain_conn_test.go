@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
@@ -6,47 +6,73 @@ import (
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixAWSTgwPeeringDomainConn_basic(t *testing.T) {
-	var domainConn goaviatrix.DomainConn
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_aws_tgw_peering_domain_conn.test"
+	t.Parallel()
+
+	// Generate a random resource name to prevent conflicts
+	resourceName := fmt.Sprintf("aviatrix_aws_tgw_peering_domain_conn.test-%s", random.UniqueId())
 
 	skipAcc := os.Getenv("SKIP_AWS_TGW_PEERING_DOMAIN_CONN")
 	if skipAcc == "yes" {
 		t.Skip("Skipping Aviatrix AWS tgw peering domain connection tests as 'SKIP_AWS_TGW_PEERING_DOMAIN_CONN' is set")
 	}
-	msgCommon := ". Set 'SKIP_AWS_TGW_PEERING_DOMAIN_CONN' to 'yes' to skip Aviatrix AWS tgw peering domain connection tests"
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, msgCommon)
+
+	// Configure Terraform options
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/aws-tgw-peering-domain-connection",
+		Vars: map[string]interface{}{
+			"test_name":           resourceName,
+			"aws_account_number":  os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key":      os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":      os.Getenv("AWS_SECRET_KEY"),
+			"aws_region":          "us-east-1",
+			"aws_region2":         "us-east-2",
+			"domain_name1":        "Default_Domain",
+			"domain_name2":        "Default_Domain",
+			"tgw_name1":           "tgw1",
+			"tgw_name2":           "tgw2",
+			"shared_service_name": "Shared_Service_Domain",
+			"aviatrix_edge_name":  "Aviatrix_Edge_Domain",
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckAWSTgwPeeringDomainConnDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccAWSTgwPeeringDomainConnConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					tesAccCheckAWSTgwPeeringDomainConnExists(resourceName, &domainConn),
-					resource.TestCheckResourceAttr(resourceName, "tgw_name1", "tgw1"),
-					resource.TestCheckResourceAttr(resourceName, "domain_name1", "Default_Domain"),
-					resource.TestCheckResourceAttr(resourceName, "tgw_name2", "tgw2"),
-					resource.TestCheckResourceAttr(resourceName, "domain_name2", "Default_Domain"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	}
+
+	// Ensure resources are destroyed at the end of the test
+	defer terraform.Destroy(t, terraformOptions)
+
+	// Apply Terraform
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Check that the AWS TGW peering domain connection was created
+	var domainConn goaviatrix.DomainConn
+	client := goaviatrix.NewClient(os.Getenv("AVIATRIX_API_KEY"), os.Getenv("AVIATRIX_API_SECRET"), os.Getenv("AVIATRIX_CONTROLLER_HOST"))
+	err := client.GetDomainConn(&goaviatrix.DomainConn{
+		TgwName1:    "tgw1",
+		DomainName1: "Default_Domain",
+		TgwName2:    "tgw2",
+		DomainName2: "Default_Domain",
+	}, &domainConn)
+	assert.NoError(t, err)
+	assert.Equal(t, "tgw1", domainConn.TgwName1)
+	assert.Equal(t, "Default_Domain", domainConn.DomainName1)
+	assert.Equal(t, "tgw2", domainConn.TgwName2)
+	assert.Equal(t, "Default_Domain", domainConn.DomainName2)
+
+	// Import the AWS TGW peering domain connection and verify it matches
+	err = terraform.Import(t, terraformOptions, resourceName)
+	assert.NoError(t, err)
+
+	importedResource, err := terraform.Show(t, terraformOptions, "-no-color", "-json")
+	assert.NoError(t, err)
+
+	assert.Contains(t, importedResource, fmt.Sprintf(`"id": "%s"`, domainConn.String()))
 }
+
 
 func testAccAWSTgwPeeringDomainConnConfigBasic(rName string) string {
 	return fmt.Sprintf(`

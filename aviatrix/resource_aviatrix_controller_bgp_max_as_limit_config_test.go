@@ -1,93 +1,61 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestAccAviatrixControllerBgpMaxAsLimitConfig_basic(t *testing.T) {
+func TestAviatrixControllerBgpMaxAsLimitConfig_basic(t *testing.T) {
+	t.Parallel()
+
 	skipAcc := os.Getenv("SKIP_CONTROLLER_BGP_MAX_AS_LIMIT_CONFIG")
 	if skipAcc == "yes" {
 		t.Skip("Skipping Controller BGP Max AS Limit Config test as SKIP_CONTROLLER_BGP_MAX_AS_LIMIT_CONFIG is set")
 	}
-	resourceName := "aviatrix_controller_bgp_max_as_limit_config.test_bgp_max_as_limit"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
+	resourceName := fmt.Sprintf("aviatrix_controller_bgp_max_as_limit_config.test-%s", strings.ToLower(random.UniqueId()))
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/controller_bgp_max_as_limit_config/",
+		Vars: map[string]interface{}{
+			"max_as_limit": 1,
 		},
-		Providers:    testAccProvidersVersionValidation,
-		CheckDestroy: testAccCheckControllerBgpMaxAsLimitConfigDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccControllerBgpMaxAsLimitConfigBasic(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckControllerBgpMaxAsLimitConfigExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "max_as_limit", "1"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
-}
-
-func testAccControllerBgpMaxAsLimitConfigBasic() string {
-	return `
-resource "aviatrix_controller_bgp_max_as_limit_config" "test_bgp_max_as_limit" {
-	max_as_limit = 1
-}
-`
-}
-
-func testAccCheckControllerBgpMaxAsLimitConfigExists(n string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[n]
-		if !ok {
-			return fmt.Errorf("controller bgp max as limit config ID Not found: %s", n)
-		}
-		if rs.Primary.ID == "" {
-			return fmt.Errorf("no controller bgp max as limit config ID is set")
-		}
-
-		client := testAccProviderVersionValidation.Meta().(*goaviatrix.Client)
-
-		_, err := client.GetControllerBgpMaxAsLimit(context.Background())
-		if err != nil {
-			return fmt.Errorf("failed to get controller bgp max as limit config status: %v", err)
-		}
-
-		if strings.Replace(client.ControllerIP, ".", "-", -1) != rs.Primary.ID {
-			return fmt.Errorf("controller bgp max as limit config ID not found")
-		}
-
-		return nil
-	}
-}
-
-func testAccCheckControllerBgpMaxAsLimitConfigDestroy(s *terraform.State) error {
-	client := testAccProviderVersionValidation.Meta().(*goaviatrix.Client)
-
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_controller_bgp_max_as_limit_config" {
-			continue
-		}
-
-		_, err := client.GetControllerBgpMaxAsLimit(context.Background())
-		if err == nil || err != goaviatrix.ErrNotFound {
-			return fmt.Errorf("controller bgp max as limit configured when it should be destroyed")
-		}
 	}
 
-	return nil
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	checkControllerBgpMaxAsLimitConfigExists(t, terraformOptions, resourceName)
+}
+
+func checkControllerBgpMaxAsLimitConfigExists(t *testing.T, terraformOptions *terraform.Options, resourceName string) {
+	client := goaviatrix.NewClient(
+		terraform.Output(t, terraformOptions, "controller_endpoint"),
+		terraform.Output(t, terraformOptions, "username"),
+		terraform.Output(t, terraformOptions, "password"),
+		"",
+		terraform.Output(t, terraformOptions, "aws_account"),
+		"",
+		"",
+		terraform.Output(t, terraformOptions, "aws_role_arn"),
+		"",
+		"",
+		"",
+		true,
+	)
+
+	bgpMaxAsLimit, err := client.GetControllerBgpMaxAsLimit(context.Background())
+	if err != nil {
+		t.Fatalf("Failed to get controller BGP Max AS Limit config status: %v", err)
+	}
+
+	assert.Equal(t, 1, bgpMaxAsLimit, "BGP Max AS Limit value is not as expected")
 }

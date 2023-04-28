@@ -1,56 +1,76 @@
-package aviatrix
+package aviatrix_test
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixAwsTgwVpcAttachment_basic(t *testing.T) {
 	var awsTgwVpcAttachment goaviatrix.AwsTgwVpcAttachment
 
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_aws_tgw_vpc_attachment.test"
+	rName := strings.ToLower(t.Name())
+	resourceName := fmt.Sprintf("aviatrix_aws_tgw_vpc_attachment.test_%s", rName)
 
 	skipAcc := os.Getenv("SKIP_AWS_TGW_VPC_ATTACHMENT")
 	if skipAcc == "yes" {
 		t.Skip("Skipping AWS TGW VPC ATTACH test as SKIP_AWS_TGW_VPC_ATTACHMENT is set")
 	}
-	msg := ". Set SKIP_AWS_TGW_VPC_ATTACHMENT to yes to skip AWS TGW VPC ATTACH tests"
+
+	ctx := context.Background()
 
 	awsSideAsNumber := "64512"
 	nDm := "myNdn"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, msg)
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"account_name":             "tfa-" + rName,
+			"aws_account_number":       os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_iam":                  false,
+			"aws_access_key":           os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":           os.Getenv("AWS_SECRET_KEY"),
+			"aws_side_as_number":       awsSideAsNumber,
+			"region":                   os.Getenv("AWS_REGION"),
+			"tgw_name":                 "tft-" + rName,
+			"network_domain_name":      nDm,
+			"vpc_account_name":         "aviatrix_account.test_account.account_name",
+			"vpc_id":                   os.Getenv("AWS_VPC_ID"),
+			"skip_account_existence_check": true,
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckAwsTgwVpcAttachmentDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccAwsTgwVpcAttachmentConfigBasic(rName, awsSideAsNumber, nDm),
-				Check: resource.ComposeTestCheckFunc(
-					tesAccCheckAwsTgwVpcAttachmentExists(resourceName, &awsTgwVpcAttachment),
-					resource.TestCheckResourceAttr(resourceName, "tgw_name", fmt.Sprintf("tft-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "region", os.Getenv("AWS_REGION")),
-					resource.TestCheckResourceAttr(resourceName, "network_domain_name", nDm),
-					resource.TestCheckResourceAttr(resourceName, "vpc_id", os.Getenv("AWS_VPC_ID")),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
+		EnvVars: map[string]string{
+			"AVX_USER":      os.Getenv("AVX_USER"),
+			"AVX_PASSWORD":  os.Getenv("AVX_PASSWORD"),
+			"AVX_CONTROLLER": os.Getenv("AVX_CONTROLLER"),
 		},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	err := terraform.OutputStruct(resourceName, &awsTgwVpcAttachment)
+	assert.NoError(t, err)
+
+	client := goaviatrix.NewClient(os.Getenv("AVX_CONTROLLER"), os.Getenv("AVX_USER"), os.Getenv("AVX_PASSWORD"))
+
+	foundAwsTgwVpcAttachment, err := client.GetAwsTgwVpcAttachment(&goaviatrix.AwsTgwVpcAttachment{
+		TgwName:            awsTgwVpcAttachment.TgwName,
+		SecurityDomainName: awsTgwVpcAttachment.SecurityDomainName,
+		VpcID:              awsTgwVpcAttachment.VpcID,
 	})
+	assert.NoError(t, err)
+
+	assert.Equal(t, awsTgwVpcAttachment.TgwName, foundAwsTgwVpcAttachment.TgwName)
+	assert.Equal(t, awsTgwVpcAttachment.SecurityDomainName, foundAwsTgwVpcAttachment.SecurityDomainName)
+	assert.Equal(t, awsTgwVpcAttachment.VpcID, foundAwsTgwVpcAttachment.VpcID)
+
 }
 
 func testAccAwsTgwVpcAttachmentConfigBasic(rName string, awsSideAsNumber string, nDm string) string {

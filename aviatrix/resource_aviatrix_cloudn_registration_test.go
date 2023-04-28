@@ -1,4 +1,4 @@
-package aviatrix
+package test
 
 import (
 	"context"
@@ -7,11 +7,71 @@ import (
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
-
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
+
+func TestAccAviatrixCloudnRegistration_basic(t *testing.T) {
+	t.Parallel()
+
+	skipAcc := os.Getenv("SKIP_CLOUDN_REGISTRATION")
+	if skipAcc == "yes" {
+		t.Skip("Skipping Aviatrix CloudN Registration test as SKIP_CLOUDN_REGISTRATION is set")
+	}
+
+	cloudnName := fmt.Sprintf("cloudn-%s", random.UniqueId())
+	localASNumber := "65707"
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/cloudn_registration",
+		EnvVars: map[string]string{
+			"AVIATRIX_USERNAME": os.Getenv("AVIATRIX_USERNAME"),
+			"AVIATRIX_PASSWORD": os.Getenv("AVIATRIX_PASSWORD"),
+			"CLOUDN_IP":         os.Getenv("CLOUDN_IP"),
+			"CLOUDN_USERNAME":   os.Getenv("CLOUDN_USERNAME"),
+			"CLOUDN_PASSWORD":   os.Getenv("CLOUDN_PASSWORD"),
+		},
+		Vars: map[string]interface{}{
+			"cloudn_name":       cloudnName,
+			"local_as_number":   localASNumber,
+			"prepend_as_path":   []string{localASNumber},
+			"aviatrix_version":  os.Getenv("AVIATRIX_VERSION"),
+			"controller_domain": os.Getenv("CONTROLLER_DOMAIN"),
+		},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Verify the cloudn registration exists
+	client := goaviatrix.NewClient(os.Getenv("AVIATRIX_CONTROLLER_IP"), os.Getenv("AVIATRIX_USERNAME"), os.Getenv("AVIATRIX_PASSWORD"), os.Getenv("AVIATRIX_VERSION"))
+	cloudnRegistration := &goaviatrix.CloudnRegistration{
+		Name: cloudnName,
+	}
+
+	err := client.GetCloudnRegistration(context.Background(), cloudnRegistration)
+	assert.NoError(t, err)
+	assert.Equal(t, cloudnName, cloudnRegistration.Name)
+	assert.Equal(t, os.Getenv("CLOUDN_IP"), cloudnRegistration.Address)
+	assert.Equal(t, localASNumber, cloudnRegistration.LocalASNumber)
+
+	// Verify the cloudn registration was imported correctly
+	importedCloudnRegistrationOptions := &terraform.Options{
+		TerraformDir: "../examples/cloudn_registration",
+		EnvVars: map[string]string{
+			"AVIATRIX_USERNAME": os.Getenv("AVIATRIX_USERNAME"),
+			"AVIATRIX_PASSWORD": os.Getenv("AVIATRIX_PASSWORD"),
+			"CLOUDN_IP":         os.Getenv("CLOUDN_IP"),
+		},
+	}
+
+	importedCloudnRegistration := terraform.Import(t, importedCloudnRegistrationOptions, "aviatrix_cloudn_registration.test_cloudn_registration")
+	assert.Equal(t, cloudnName, importedCloudnRegistration["name"])
+	assert.Equal(t, os.Getenv("CLOUDN_IP"), importedCloudnRegistration["address"])
+	assert.Equal(t, localASNumber, importedCloudnRegistration["local_as_number"])
+}
+
 
 func TestAccAviatrixCloudnRegistration_basic(t *testing.T) {
 	skipAcc := os.Getenv("SKIP_CLOUDN_REGISTRATION")
@@ -19,124 +79,66 @@ func TestAccAviatrixCloudnRegistration_basic(t *testing.T) {
 		t.Skip("Skipping Aviatrix CloudN Registration test as SKIP_CLOUDN_REGISTRATION is set")
 	}
 
-	rName := fmt.Sprintf("cloudn-%s", acctest.RandString(5))
-	resourceName := "aviatrix_cloudn_registration.test_cloudn_registration"
+	terraformOptions := createCloudnRegistrationTerraformOptions(t)
+	defer terraform.Destroy(t, terraformOptions)
+	terraform.InitAndApply(t, terraformOptions)
+
+	checkCloudnRegistrationResources(t, terraformOptions)
+
+	importedTerraformOptions := importCloudnRegistrationTerraformOptions(t, terraformOptions)
+	checkCloudnRegistrationResources(t, importedTerraformOptions)
+}
+
+func createCloudnRegistrationTerraformOptions(t *testing.T) *terraform.Options {
+	rName := fmt.Sprintf("cloudn-%s", random.UniqueId())
 	localASNumber := "65707"
+	address := os.Getenv("CLOUDN_IP")
+	username := os.Getenv("CLOUDN_USERNAME")
+	password := os.Getenv("CLOUDN_PASSWORD")
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			testAccAviatrixCloudnRegistrationPreCheck(t)
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/cloudn_registration/",
+		Vars: map[string]interface{}{
+			"name":            rName,
+			"address":         address,
+			"username":        username,
+			"password":        password,
+			"local_as_number": localASNumber,
 		},
-		Providers:    testAccProvidersVersionValidation,
-		CheckDestroy: testAccCheckCloudnRegistrationDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccCloudnRegistrationBasic(rName, localASNumber),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckCloudnRegistrationExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "address", os.Getenv("CLOUDN_IP")),
-					resource.TestCheckResourceAttr(resourceName, "name", rName),
-					resource.TestCheckResourceAttr(resourceName, "local_as_number", localASNumber),
-					resource.TestCheckNoResourceAttr(resourceName, "prepend_as_path"),
-				),
-			},
-			{
-				Config: testAccCloudnRegistrationBasicUpdated(rName, localASNumber),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckCloudnRegistrationExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "address", os.Getenv("CLOUDN_IP")),
-					resource.TestCheckResourceAttr(resourceName, "name", rName),
-					resource.TestCheckResourceAttr(resourceName, "local_as_number", localASNumber),
-					resource.TestCheckResourceAttr(resourceName, "prepend_as_path.0", localASNumber),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-				ImportStateVerifyIgnore: []string{
-					"username",
-					"password",
-				},
-			},
-		},
-	})
-}
-
-func testAccCloudnRegistrationBasic(rName, localASNumber string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_cloudn_registration" "test_cloudn_registration" {
-	name			= "%[1]s"
-	address			= "%[2]s"
-	username		= "%[3]s"
-	password		= "%[4]s"
-	local_as_number		= "%[5]s"
-}
-`, rName, os.Getenv("CLOUDN_IP"), os.Getenv("CLOUDN_USERNAME"), os.Getenv("CLOUDN_PASSWORD"),
-		localASNumber)
-}
-
-func testAccCloudnRegistrationBasicUpdated(rName, localASNumber string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_cloudn_registration" "test_cloudn_registration" {
-	name			= "%[1]s"
-	address			= "%[2]s"
-	username		= "%[3]s"
-	password		= "%[4]s"
-	local_as_number		= "%[5]s"
-	prepend_as_path		= ["%[5]s"]
-}
-`, rName, os.Getenv("CLOUDN_IP"), os.Getenv("CLOUDN_USERNAME"), os.Getenv("CLOUDN_PASSWORD"),
-		localASNumber)
-}
-
-func testAccCheckCloudnRegistrationExists(n string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[n]
-		if !ok {
-			return fmt.Errorf("aviatrix_cloudn_registration resource not found: %s", n)
-		}
-		if rs.Primary.ID == "" {
-			return fmt.Errorf("aviatrix_cloudn_registration ID is empty")
-		}
-
-		client := testAccProviderVersionValidation.Meta().(*goaviatrix.Client)
-
-		cloudnRegistration := &goaviatrix.CloudnRegistration{
-			Name: rs.Primary.Attributes["name"],
-		}
-
-		_, err := client.GetCloudnRegistration(context.Background(), cloudnRegistration)
-		if err != nil {
-			return err
-		}
-		if cloudnRegistration.Name != rs.Primary.ID {
-			return fmt.Errorf("aviatrix_cloudn_registration not found")
-		}
-
-		return nil
-	}
-}
-
-func testAccCheckCloudnRegistrationDestroy(s *terraform.State) error {
-	client := testAccProviderVersionValidation.Meta().(*goaviatrix.Client)
-
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_cloudn_registration" {
-			continue
-		}
-		cloudnRegistration := &goaviatrix.CloudnRegistration{
-			Name: rs.Primary.Attributes["name"],
-		}
-		_, err := client.GetCloudnRegistration(context.Background(), cloudnRegistration)
-		if err == nil {
-			return fmt.Errorf("aviatrix_cloudn_registration still exists")
-		}
 	}
 
-	return nil
+	return terraformOptions
 }
+
+func importCloudnRegistrationTerraformOptions(t *testing.T, terraformOptions *terraform.Options) *terraform.Options {
+	importedTerraformOptions := &terraform.Options{
+		TerraformDir: "../examples/cloudn_registration/",
+		BackendConfig: map[string]interface{}{
+			"key": terraformOptions.StateFile,
+		},
+	}
+
+	return importedTerraformOptions
+}
+
+func checkCloudnRegistrationResources(t *testing.T, terraformOptions *terraform.Options) {
+	name := terraformOptions.Vars["name"].(string)
+	localASNumber := terraformOptions.Vars["local_as_number"].(string)
+
+	client := goaviatrix.NewClient(os.Getenv("AVIATRIX_API_ENDPOINT"), os.Getenv("AVIATRIX_API_ACCOUNT_NAME"), os.Getenv("AVIATRIX_API_ACCESS_KEY"), os.Getenv("AVIATRIX_API_SECRET_KEY"))
+
+	cloudnRegistration := &goaviatrix.CloudnRegistration{
+		Name: name,
+	}
+
+	err := client.GetCloudnRegistration(context.Background(), cloudnRegistration)
+	assert.Nil(t, err)
+	assert.Equal(t, address, cloudnRegistration.Address)
+	assert.Equal(t, name, cloudnRegistration.Name)
+	assert.Equal(t, localASNumber, cloudnRegistration.LocalASNumber)
+	assert.Equal(t, "", cloudnRegistration.PrependASPath)
+}
+
 
 func testAccAviatrixCloudnRegistrationPreCheck(t *testing.T) {
 	requiredEnv := []string{

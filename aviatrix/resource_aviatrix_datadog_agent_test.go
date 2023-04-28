@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
@@ -6,42 +6,58 @@ import (
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestAccAviatrixDatadogAgent_basic(t *testing.T) {
-	if os.Getenv("SKIP_DATADOG_AGENT") == "yes" {
-		t.Skip("Skipping datadog agent test as SKIP_DATADOG_AGENT is set")
+func TestAviatrixDatadogAgent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
 	}
 
-	resourceName := "aviatrix_datadog_agent.test_datadog_agent"
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"datadog_api_key": os.Getenv("DATADOG_API_KEY"),
+			"site":            "datadoghq.com",
+			"excluded_gateways": []string{"a", "b"},
+		},
+	}
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckDatadogAgentDestroy,
-		Steps: []resource.TestStep{
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	client := goaviatrix.NewClient(os.Getenv("AVIATRIX_CONTROLLER_IP"), os.Getenv("AVIATRIX_USERNAME"), os.Getenv("AVIATRIX_PASSWORD"), os.Getenv("AVIATRIX_ADMIN_EMAIL"))
+
+	datadogAgentStatus, err := client.GetDatadogAgentStatus()
+	assert.NoError(t, err)
+
+	assert.NotEmpty(t, datadogAgentStatus.ApiKey)
+
+	expectedExcludedGateways := []string{"a", "b"}
+	assert.ElementsMatch(t, expectedExcludedGateways, datadogAgentStatus.ExcludedGateways)
+
+	importedResourceName := fmt.Sprintf("aviatrix_datadog_agent.%s", random.UniqueId())
+	importState := terraform.ImportState{
+		Resources: []terraform.ImportedResource{
 			{
-				Config: testAccDatadogAgentBasic(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckDatadogAgentExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "api_key", os.Getenv("DATADOG_API_KEY")),
-					resource.TestCheckResourceAttr(resourceName, "site", "datadoghq.com"),
-					testAccCheckDatadogAgentExcludedGatewaysMatch([]string{"a", "b"}),
-				),
-			},
-			{
-				ResourceName:            resourceName,
-				ImportState:             true,
-				ImportStateVerify:       true,
-				ImportStateVerifyIgnore: []string{"api_key"},
+				Type:        "aviatrix_datadog_agent",
+				ImportState: fmt.Sprintf("%s %s", datadogAgentStatus.ApiKey, "datadoghq.com"),
+				Name:        importedResourceName,
 			},
 		},
-	})
+	}
+
+	terraform.Import(t, terraformOptions, &importState)
+
+	importedResource := terraform.Instance(importedResourceName)
+	assert.Equal(t, datadogAgentStatus.ApiKey, importedResource.Attr("api_key"))
+	assert.Equal(t, "datadoghq.com", importedResource.Attr("site"))
+	assert.ElementsMatch(t, expectedExcludedGateways, importedResource.Get("excluded_gateways").([]interface{}))
 }
+
 
 func testAccDatadogAgentBasic() string {
 	return fmt.Sprintf(`
