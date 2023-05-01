@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"context"
@@ -8,11 +8,11 @@ import (
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 	"github.com/gruntwork-io/terratest/modules/random"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestAccAviatrixSegmentationNetworkDomainConnectionPolicy_basic(t *testing.T) {
+func TestAviatrixSegmentationNetworkDomainConnectionPolicy_basic(t *testing.T) {
 	t.Parallel()
 
 	if os.Getenv("SKIP_SEGMENTATION_NETWORK_DOMAIN_CONNECTION_POLICY") == "yes" {
@@ -54,7 +54,7 @@ func verifySegmentationNetworkDomainConnectionPolicyExists(ctx context.Context, 
 		},
 	}
 
-	err := resource.RetryContext(ctx, retryTimeout, func() *resource.RetryError {
+	require.NoError(t, resource.RetryContext(ctx, retryTimeout, func() *resource.RetryError {
 		_, err := client.GetSegmentationSecurityDomainConnectionPolicy(foundSegmentationNetworkDomainConnectionPolicy)
 		if err != nil {
 			return resource.NonRetryableError(fmt.Errorf("failed to get segmentation network domain connection policy: %v", err))
@@ -65,34 +65,39 @@ func verifySegmentationNetworkDomainConnectionPolicyExists(ctx context.Context, 
 		}
 
 		return nil
-	})
-	assert.Nil(t, err)
+	}))
 }
 
-func getAviatrixClientFromProvider() *goaviatrix.Client {
-	return testAccProvider.Meta().(*goaviatrix.Client)
-}
-func testAccCheckSegmentationNetworkDomainConnectionPolicyDestroy(s *terraform.State) error {
-	client := testAccProvider.Meta().(*goaviatrix.Client)
+func ResourceDestroyFunc(resourceType string) schema.ResourceTestStep {
+	return schema.ResourceTestStep{
+		// We assume that the resource id is formed by concatenating the values of its attributes
+		// separated by the character "~"
+		// For instance, a policy connecting domains "domain1" and "domain2" would have an id "domain1~domain2"
+		Check: resource.ComposeTestCheckFunc(
+			func(state *terraform.State) error {
+				client := GetAviatrixClientFromProvider()
 
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_segmentation_network_domain_connection_policy" {
-			continue
-		}
-		foundSegmentationNetworkDomainConnectionPolicy := &goaviatrix.SegmentationSecurityDomainConnectionPolicy{
-			Domain1: &goaviatrix.SegmentationSecurityDomain{
-				DomainName: rs.Primary.Attributes["domain_name_1"],
+				for _, rs := range state.RootModule().Resources {
+					if rs.Type != resourceType {
+						continue
+					}
+
+					domain1Name := rs.Primary.Attributes["domain_name_1"]
+					domain2Name := rs.Primary.Attributes["domain_name_2"]
+
+					policy := &goaviatrix.SegmentationSecurityDomainConnectionPolicy{
+						Domain1: &goaviatrix.SegmentationSecurityDomain{DomainName: domain1Name},
+						Domain2: &goaviatrix.SegmentationSecurityDomain{DomainName: domain2Name},
+					}
+
+					_, err := client.GetSegmentationSecurityDomainConnectionPolicy(policy)
+					if err == nil {
+						return fmt.Errorf("Resource %s with id %s still exists", resourceType, rs.Primary.ID)
+					}
+				}
+
+				return nil
 			},
-			Domain2: &goaviatrix.SegmentationSecurityDomain{
-				DomainName: rs.Primary.Attributes["domain_name_2"],
-			},
-		}
-		_, err := client.GetSegmentationSecurityDomainConnectionPolicy(foundSegmentationNetworkDomainConnectionPolicy)
-		if err == nil {
-			return fmt.Errorf("segmentation_network_domain_connection_policy still exists")
-		}
+		),
 	}
-
-	return nil
 }
-

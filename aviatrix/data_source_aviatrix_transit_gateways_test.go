@@ -22,7 +22,7 @@ func TestAccDataSourceAviatrixVpc_basic(t *testing.T) {
 		t.Skip("Skipping test due to missing AWS_REGION and/or AWS_ACCOUNT_ID environment variables")
 	}
 
-	terraformOptions := &terraform.Options{
+	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
 		TerraformDir: "./",
 		Vars: map[string]interface{}{
 			"region":       awsRegion,
@@ -31,7 +31,7 @@ func TestAccDataSourceAviatrixVpc_basic(t *testing.T) {
 			"cidr":         "10.0.0.0/16",
 			"aws_account":  awsAccountID,
 		},
-	}
+	})
 
 	defer terraform.Destroy(t, terraformOptions)
 
@@ -49,7 +49,7 @@ func TestAccDataSourceAviatrixTransitGateways_basic(t *testing.T) {
 	t.Parallel()
 
 	testName := fmt.Sprintf("aviatrix-transit-gateways-%s", random.UniqueId())
-	terraformOptions := &terraform.Options{
+	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
 		TerraformDir: "../examples/data-sources/transit-gateways",
 		Vars: map[string]interface{}{
 			"test_name":          testName,
@@ -65,7 +65,7 @@ func TestAccDataSourceAviatrixTransitGateways_basic(t *testing.T) {
 			"gcp_zone":                  os.Getenv("GCP_ZONE"),
 			"aviatrix_version":          "3.5",
 		},
-	}
+	})
 
 	defer terraform.Destroy(t, terraformOptions)
 
@@ -73,6 +73,7 @@ func TestAccDataSourceAviatrixTransitGateways_basic(t *testing.T) {
 
 	terraform.Output(t, terraformOptions, "all_transit_gateways")
 }
+
 
 func TestAccDataSourceAviatrixTransitGateways(t *testing.T) {
 			t.Parallel()

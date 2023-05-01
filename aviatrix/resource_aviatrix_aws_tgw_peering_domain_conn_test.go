@@ -45,18 +45,12 @@ func TestAccAviatrixAWSTgwPeeringDomainConn_basic(t *testing.T) {
 	// Ensure resources are destroyed at the end of the test
 	defer terraform.Destroy(t, terraformOptions)
 
-	// Apply Terraform
+	// Deploy Terraform code
 	terraform.InitAndApply(t, terraformOptions)
 
 	// Check that the AWS TGW peering domain connection was created
 	var domainConn goaviatrix.DomainConn
-	client := goaviatrix.NewClient(os.Getenv("AVIATRIX_API_KEY"), os.Getenv("AVIATRIX_API_SECRET"), os.Getenv("AVIATRIX_CONTROLLER_HOST"))
-	err := client.GetDomainConn(&goaviatrix.DomainConn{
-		TgwName1:    "tgw1",
-		DomainName1: "Default_Domain",
-		TgwName2:    "tgw2",
-		DomainName2: "Default_Domain",
-	}, &domainConn)
+	err := aviatrix.GetResourceByTerraformModule(terraformOptions, "aviatrix_aws_tgw_peering_domain_conn.test", &domainConn)
 	assert.NoError(t, err)
 	assert.Equal(t, "tgw1", domainConn.TgwName1)
 	assert.Equal(t, "Default_Domain", domainConn.DomainName1)
@@ -72,7 +66,6 @@ func TestAccAviatrixAWSTgwPeeringDomainConn_basic(t *testing.T) {
 
 	assert.Contains(t, importedResource, fmt.Sprintf(`"id": "%s"`, domainConn.String()))
 }
-
 
 func testAccAWSTgwPeeringDomainConnConfigBasic(rName string) string {
 	return fmt.Sprintf(`

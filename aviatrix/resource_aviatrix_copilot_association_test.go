@@ -1,92 +1,95 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAccAviatrixCopilotAssociation_basic(t *testing.T) {
+	t.Parallel()
+
 	skipAcc := os.Getenv("SKIP_COPILOT_ASSOCIATION")
 	if skipAcc == "yes" {
 		t.Skip("Skipping Copilot Association test as SKIP_COPILOT_ASSOCIATION is set")
 	}
+
 	resourceName := "aviatrix_copilot_association.test"
 	testAccVersion := os.Getenv("TESTACC_AVIATRIX_VERSION")
 
 	terraformOptions := &terraform.Options{
 		TerraformDir: "../../_example/copilot_association",
-		Upgrade:      true,
 		Vars: map[string]interface{}{
 			"copilot_address": "aviatrix.com",
 		},
 	}
 
-	defer terraform.Destroy(t, terraformOptions)
-	terraform.InitAndApply(t, terraformOptions)
+	defer terratest.Destroy(t, terraformOptions)
+	terratest.Init(t, terraformOptions)
 
-	assert.NoError(t, terraform.InitAndApplyE(t, terraformOptions))
+	terratest.Apply(t, terraformOptions)
 
 	status, err := aviatrixClient.GetCopilotAssociationStatus(context.Background())
-	assert.NoError(t, err)
-	assert.Equal(t, "Succeed", status.Status)
+	require.NoError(t, err)
+	require.Equal(t, "Succeed", status.Status)
 }
 
+
 func TestAccAviatrixCopilotAssociation_update(t *testing.T) {
-	skipAcc := os.Getenv("SKIP_COPILOT_ASSOCIATION")
-	if skipAcc == "yes" {
-		t.Skip("Skipping Copilot Association test as SKIP_COPILOT_ASSOCIATION is set")
-	}
-	resourceName := fmt.Sprintf("aviatrix_copilot_association.test_%s", random.UniqueId())
+    skipAcc := os.Getenv("SKIP_COPILOT_ASSOCIATION")
+    if skipAcc == "yes" {
+        t.Skip("Skipping Copilot Association test as SKIP_COPILOT_ASSOCIATION is set")
+    }
 
-	terraformOptions := &terraform.Options{
-		TerraformDir: "../../_example/copilot_association",
-		Upgrade:      true,
-		Vars: map[string]interface{}{
-			"copilot_address": "aviatrix.com",
-		},
-	}
+    resourceName := fmt.Sprintf("aviatrix_copilot_association.test_%s", random.UniqueId())
 
-	defer terraform.Destroy(t, terraformOptions)
+    terraformOptions := &terraform.Options{
+        TerraformDir: "../../_example/copilot_association",
+        Upgrade:      true,
+        Vars: map[string]interface{}{
+            "copilot_address": "aviatrix.com",
+        },
+    }
 
-	terraform.InitAndApply(t, terraformOptions)
+    defer terraform.Destroy(t, terraformOptions)
 
-	terraformOptions.Vars["copilot_address"] = "updated.aviatrix.com"
+    terraform.InitAndApply(t, terraformOptions)
 
-	terraform.Apply(t, terraformOptions)
+    terraformOptions.Vars["copilot_address"] = "updated.aviatrix.com"
 
-	status, err := aviatrixClient.GetCopilotAssociationStatus(context.Background())
-	assert.NoError(t, err)
-	assert.Equal(t, "Succeed", status.Status)
+    terraform.Apply(t, terraformOptions)
+
+    status, err := aviatrixClient.GetCopilotAssociationStatus(context.Background())
+    assert.NoError(t, err)
+    assert.Equal(t, "Succeed", status.Status)
 }
 
 func TestAccAviatrixCopilotAssociation_destroy(t *testing.T) {
-	skipAcc := os.Getenv("SKIP_COPILOT_ASSOCIATION")
-	if skipAcc == "yes" {
-		t.Skip("Skipping Copilot Association test as SKIP_COPILOT_ASSOCIATION is set")
-	}
-	resourceName := "aviatrix_copilot_association.test"
+    skipAcc := os.Getenv("SKIP_COPILOT_ASSOCIATION")
+    if skipAcc == "yes" {
+        t.Skip("Skipping Copilot Association test as SKIP_COPILOT_ASSOCIATION is set")
+    }
 
-	terraformOptions := &terraform.Options{
-		TerraformDir: "../../_example/copilot_association",
-		Upgrade:      true,
-		Vars: map[string]interface{}{
-			"copilot_address": "aviatrix.com",
-		},
-	}
+    resourceName := "aviatrix_copilot_association.test"
 
-	defer terraform.Destroy(t, terraformOptions)
+    terraformOptions := &terraform.Options{
+        TerraformDir: "../../_example/copilot_association",
+        Upgrade:      true,
+        Vars: map[string]interface{}{
+            "copilot_address": "aviatrix.com",
+        },
+    }
 
-	terraform.InitAndApply(t, terraformOptions)
+    defer terraform.Destroy(t, terraformOptions)
 
-	assert.NoError(t, terraform.DestroyE(t, terraformOptions))
+    terraform.InitAndApply(t, terraformOptions)
 
-	_, err := aviatrixClient.GetCopilotAssociationStatus(context.Background())
-	assert.Equal(t, goaviatrix.ErrNotFound, err)
+    assert.NoError(t, terraform.DestroyE(t, terraformOptions))
+
+    _, err := aviatrixClient.GetCopilotAssociationStatus(context.Background())
+    assert.Equal(t, goaviatrix.ErrNotFound, err)
 }

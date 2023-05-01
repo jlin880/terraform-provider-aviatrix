@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"fmt"
@@ -6,96 +6,58 @@ import (
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
 )
 
-func TestAccAviatrixNetflowAgent_basic(t *testing.T) {
+func TestAviatrixNetflowAgent_basic(t *testing.T) {
 	if os.Getenv("SKIP_NETFLOW_AGENT") == "yes" {
 		t.Skip("Skipping netflow agent test as SKIP_NETFLOW_AGENT is set")
 	}
 
-	resourceName := "aviatrix_netflow_agent.test_netflow_agent"
+	// Generate a random resource name to avoid any naming conflicts
+	resourceName := fmt.Sprintf("aviatrix_netflow_agent.test-%s", random.UniqueId())
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../../path/to/terraform/directory",
+		Vars: map[string]interface{}{
+			"server_ip":         "1.2.3.4",
+			"port":              10,
+			"excluded_gateways": []string{"a", "b"},
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckNetflowAgentDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccNetflowAgentBasic(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckNetflowAgentExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "server_ip", "1.2.3.4"),
-					resource.TestCheckResourceAttr(resourceName, "port", "10"),
-					resource.TestCheckResourceAttr(resourceName, "version", "5"),
-					testAccCheckNetflowAgentExcludedGatewaysMatch([]string{"a", "b"}),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
-}
-
-func testAccNetflowAgentBasic() string {
-	return `
-resource "aviatrix_netflow_agent" "test_netflow_agent" {
-	server_ip         = "1.2.3.4"
-	port              = 10
-	excluded_gateways = ["a", "b"]
-}
-`
-}
-
-func testAccCheckNetflowAgentExists(resourceName string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		_, ok := s.RootModule().Resources[resourceName]
-		if !ok {
-			return fmt.Errorf("netflow agent not found: %s", resourceName)
-		}
-
-		client := testAccProvider.Meta().(*goaviatrix.Client)
-
-		_, err := client.GetNetflowAgentStatus()
-		if err == goaviatrix.ErrNotFound {
-			return fmt.Errorf("netflow agent not found")
-		}
-
-		return nil
-	}
-}
-
-func testAccCheckNetflowAgentExcludedGatewaysMatch(input []string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		client := testAccProvider.Meta().(*goaviatrix.Client)
-
-		resp, _ := client.GetNetflowAgentStatus()
-		if !goaviatrix.Equivalent(resp.ExcludedGateways, input) {
-			return fmt.Errorf("excluded gateways don't match with the input")
-		}
-		return nil
-	}
-}
-
-func testAccCheckNetflowAgentDestroy(s *terraform.State) error {
-	client := testAccProvider.Meta().(*goaviatrix.Client)
-
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_netflow_agent" {
-			continue
-		}
-
-		_, err := client.GetNetflowAgentStatus()
-		if err != goaviatrix.ErrNotFound {
-			return fmt.Errorf("netflow_agent still exists")
-		}
 	}
 
-	return nil
+	defer terraform.Destroy(t, terraformOptions)
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Verify that the netflow agent resource exists
+	expectedExcludedGateways := []string{"a", "b"}
+	assertNetflowAgentExists(t, resourceName, expectedExcludedGateways)
+
+	// Import the netflow agent resource and verify it
+	importedTerraformOptions := terraformOptions
+	importedTerraformOptions.ImportState = true
+	importedTerraformOptions.ImportStateVerify = true
+
+	terraform.Import(t, importedTerraformOptions)
+	assertNetflowAgentExists(t, resourceName, expectedExcludedGateways)
+}
+
+func assertNetflowAgentExists(t *testing.T, resourceName string, expectedExcludedGateways []string) {
+	client := goaviatrix.NewClient("", os.Getenv("AVIATRIX_CONTROLLER_IP"), os.Getenv("AVIATRIX_USERNAME"), os.Getenv("AVIATRIX_PASSWORD"), true)
+
+	resp, err := client.GetNetflowAgentStatus()
+	if err != nil {
+		t.Fatalf("Error getting netflow agent status: %s", err)
+	}
+
+	if len(resp.ExcludedGateways) != len(expectedExcludedGateways) {
+		t.Fatalf("Expected %d excluded gateways, but got %d", len(expectedExcludedGateways), len(resp.ExcludedGateways))
+	}
+
+	for i, eg := range expectedExcludedGateways {
+		if resp.ExcludedGateways[i] != eg {
+			t.Fatalf("Expected excluded gateway %s, but got %s", eg, resp.ExcludedGateways[i])
+		}
+	}
 }

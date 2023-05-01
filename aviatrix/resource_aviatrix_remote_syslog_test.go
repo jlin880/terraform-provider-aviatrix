@@ -40,13 +40,13 @@ func TestAviatrixRemoteSyslog_basic(t *testing.T) {
 
 	checkRemoteSyslogExists(t, terraformOptions, resourceName, rIndex)
 	checkResourceAttrs(t, terraformOptions, resourceName, rIndex, rName)
-	checkRemoteSyslogExcludedGatewaysMatch(t, terraformOptions, rIndex, []string{"a", "b"})
+	checkRemoteSyslogExcludedGatewaysMatch(t, resourceName, rIndex, []string{"a", "b"})
 }
 
 func checkRemoteSyslogExists(t *testing.T, terraformOptions *terraform.Options, resourceName string, index int) {
-	client := testAccProvider.Meta().(*goaviatrix.Client)
+	client := getAviatrixClient(t)
 
-	err := terraform.RunWithDefaultRetryableErrors(t, terraformOptions, func() error {
+	err := terraform.WithRetryableErrors(t, terraformOptions, func() error {
 		_, err := client.GetRemoteSyslogStatus(index)
 		if err == goaviatrix.ErrNotFound {
 			return fmt.Errorf("remote syslog %d not found", index)
@@ -76,10 +76,10 @@ func checkResourceAttrs(t *testing.T, terraformOptions *terraform.Options, resou
 	}
 }
 
-func checkRemoteSyslogExcludedGatewaysMatch(t *testing.T, terraformOptions *terraform.Options, index int, input []string) {
-	client := testAccProvider.Meta().(*goaviatrix.Client)
+func checkRemoteSyslogExcludedGatewaysMatch(t *testing.T, resourceName string, index int, input []string) {
+	client := getAviatrixClient(t)
 
-	err := terraform.RunWithDefaultRetryableErrors(t, terraformOptions, func() error {
+	err := terraform.WithRetryableErrors(t, terraformOptions, func() error {
 		resp, _ := client.GetRemoteSyslogStatus(index)
 		if !goaviatrix.Equivalent(resp.ExcludedGateways, input) {
 			return fmt.Errorf("excluded gateways don't match with the input")
@@ -89,4 +89,20 @@ func checkRemoteSyslogExcludedGatewaysMatch(t *testing.T, terraformOptions *terr
 	})
 
 	assert.NoError(t, err)
+}
+
+func getAviatrixClient(t *testing.T) *goaviatrix.Client {
+	aviatrixAccessKey := os.Getenv("AVIATRIX_ACCESS_KEY")
+	aviatrixSecretKey := os.Getenv("AVIATRIX_SECRET_KEY")
+
+	if aviatrixAccessKey == "" || aviatrixSecretKey == "" {
+		t.Fatal("Both AVIATRIX_ACCESS_KEY and AVIATRIX_SECRET_KEY environment variables must be set")
+	}
+
+	client, err := goaviatrix.NewClient(aviatrixAccessKey, aviatrixSecretKey, "", goaviatrix.DefaultRetryer)
+	if err != nil {
+		t.Fatalf("Failed to create Aviatrix client: %v", err)
+	}
+
+	return client
 }

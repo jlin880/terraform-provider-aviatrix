@@ -5,7 +5,11 @@ import (
     "os"
     "testing"
 
+    "github.com/gruntwork-io/terratest/modules/random"
     "github.com/gruntwork-io/terratest/modules/terraform"
+    "github.com/stretchr/testify/assert"
+
+    goaviatrix "github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
 )
 
 func TestTerraformAzureVngConn(t *testing.T) {
@@ -32,34 +36,54 @@ func TestTerraformAzureVngConn(t *testing.T) {
 
     output := terraform.Output(t, terraformOptions, "connection_status")
 
-    if output != "connected" {
-        t.Errorf("Unexpected output: %s", output)
-    }
+    assert.Equal(t, "connected", output)
 }
+
 func TestAccAviatrixAzureVngConn_basic(t *testing.T) {
-	if os.Getenv("SKIP_AZURE_VNG_CONN") == "yes" {
-		t.Skip("Skipping azure vng conn test as SKIP_AZURE_VNG_CONN is set")
-	}
+    if os.Getenv("SKIP_AZURE_VNG_CONN") == "yes" {
+        t.Skip("Skipping azure vng conn test as SKIP_AZURE_VNG_CONN is set")
+    }
 
-	connectionName := fmt.Sprintf("test-%s", random.UniqueId())
-	terraformOptions := &terraform.Options{
-		TerraformDir: ".",
-		Vars: map[string]interface{}{
-			"connection_name": connectionName,
-		},
-	}
+    connectionName := fmt.Sprintf("test-%s", random.UniqueId())
+    terraformOptions := &terraform.Options{
+        TerraformDir: ".",
+        Vars: map[string]interface{}{
+            "connection_name": connectionName,
+        },
+    }
 
-	defer terraform.Destroy(t, terraformOptions)
+    defer terraform.Destroy(t, terraformOptions)
 
-	terraform.InitAndApply(t, terraformOptions)
+    terraform.InitAndApply(t, terraformOptions)
 
-	azureVngConn := testGetAzureVngConn(t, terraformOptions, connectionName)
+    client, err := goaviatrix.NewClient(os.Getenv("AVIATRIX_API_USER"), os.Getenv("AVIATRIX_API_KEY"), "", "")
+    if err != nil {
+        t.Fatalf("Failed to create Aviatrix client: %v", err)
+    }
 
-	assert.Equal(t, "test-tgw-azure", azureVngConn.PrimaryGatewayName)
-	assert.Equal(t, connectionName, azureVngConn.ConnectionName)
-	assert.Equal(t, os.Getenv("AZURE_VNG_VNET_ID"), azureVngConn.VpcID)
-	assert.Equal(t, os.Getenv("AZURE_VNG"), azureVngConn.VngName)
+    azureVngConn, err := client.GetAzureVngConn(connectionName)
+    if err != nil {
+        t.Fatalf("Failed to get Azure VNG conn: %v", err)
+    }
+
+    assert.Equal(t, "test-tgw-azure", azureVngConn.PrimaryGatewayName)
+    assert.Equal(t, connectionName, azureVngConn.ConnectionName)
+    assert.Equal(t, os.Getenv("AZURE_VNG_VNET_ID"), azureVngConn.VpcID)
+    assert.Equal(t, os.Getenv("AZURE_VNG"), azureVngConn.VngName)
 }
+
+func TestAccCheckAzureVngConnDestroy(t *testing.T) {
+    terraformOptions := &terraform.Options{
+        TerraformDir: ".",
+    }
+
+    terraform.Destroy(t, terraformOptions)
+
+    err := terraform.InitAndPlanE(t, terraformOptions)
+    assert.Error(t, err)
+    assert.Contains(t, err.Error(), "No changes. Infrastructure is up-to-date.")
+
+    client, err := goaviatrix.NewClient(os.Getenv("AVIATRIX_API_USER"), os.Getenv("AVIATRIX_API_KEY
 
 func testGetAzureVngConn(t *testing.T, terraformOptions *terraform.Options, connectionName string) *goaviatrix.AzureVngConn {
 	client := testAccProvider.Meta().(*goaviatrix.Client)

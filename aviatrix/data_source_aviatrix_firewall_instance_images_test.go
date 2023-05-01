@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"os"
@@ -6,7 +6,6 @@ import (
 
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -48,7 +47,7 @@ func TestAviatrixFirewallInstanceImagesDataSource_fail(t *testing.T) {
 	t.Parallel()
 
 	// Generate a random name to avoid naming conflicts
-	rName := acctest.RandString(5)
+	rName := random.UniqueId()
 
 	// Check if the test should be skipped
 	skipAcc := os.Getenv("SKIP_DATA_FIREWALL_INSTANCE_IMAGES")
@@ -64,6 +63,7 @@ func TestAviatrixFirewallInstanceImagesDataSource_fail(t *testing.T) {
 		// Variables to pass to our Terraform code using -var options
 		Vars: map[string]interface{}{
 			"prefix": rName,
+			"invalid_image_id": "invalid-image-id",
 		},
 	}
 

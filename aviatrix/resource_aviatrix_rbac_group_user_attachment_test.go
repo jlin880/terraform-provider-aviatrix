@@ -9,9 +9,8 @@ import (
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 	"github.com/gruntwork-io/terratest/modules/random"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixRbacGroupUserAttachment_basic(t *testing.T) {
@@ -27,103 +26,70 @@ func TestAccAviatrixRbacGroupUserAttachment_basic(t *testing.T) {
 	resourceName := "aviatrix_rbac_group_user_attachment.test"
 	msgCommon := ". Set SKIP_RBAC_GROUP_USER_ATTACHMENT to 'yes' to skip rbac group user attachment tests"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, msgCommon)
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"group_name": fmt.Sprintf("tf-%s", rName),
+			"user_name":  fmt.Sprintf("tf-user-%s", rName),
+			"email":      "abc@xyz.com",
+			"password":   "Password-1234",
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckRbacGroupUserAttachmentDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccRbacGroupUserAttachmentConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckRbacGroupUserAttachmentExists(resourceName, &rbacGroupUserAttachment),
-					resource.TestCheckResourceAttr(resourceName, "group_name", fmt.Sprintf("tf-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "user_name", fmt.Sprintf("tf-user-%s", rName)),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	checkRbacGroupUserAttachmentExists(t, terraformOptions, resourceName, &rbacGroupUserAttachment)
+	checkResourceAttrs(t, terraformOptions, resourceName, rName)
+
+	terraform.Import(t, terraformOptions, resourceName)
+
+	checkRbacGroupUserAttachmentExists(t, terraformOptions, resourceName, &rbacGroupUserAttachment)
+	checkResourceAttrs(t, terraformOptions, resourceName, rName)
 }
 
-func testAccRbacGroupUserAttachmentConfigBasic(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_rbac_group" "test" {
-	group_name = "tf-%s"
-}
-resource "aviatrix_account_user" "test" {
-	username = "tf-user-%s"
-	email    = "abc@xyz.com"
-	password = "Password-1234"
-}
-resource "aviatrix_rbac_group_user_attachment" "test" {
-	group_name = aviatrix_rbac_group.test.group_name
-	user_name  = aviatrix_account_user.test.username
-}
-	`, rName, rName)
-}
+func checkRbacGroupUserAttachmentExists(t *testing.T, terraformOptions *terraform.Options, resourceName string, attachment *goaviatrix.RbacGroupUserAttachment) {
+	client := getAviatrixClient(t)
 
-func testAccCheckRbacGroupUserAttachmentExists(n string, rAttachment *goaviatrix.RbacGroupUserAttachment) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[n]
-		if !ok {
-			return fmt.Errorf("RbacGroupUserAttachment not found: %s", n)
-		}
-		if rs.Primary.ID == "" {
-			return fmt.Errorf("no RbacGroupUserAttachment ID is set")
-		}
-
-		client := testAccProvider.Meta().(*goaviatrix.Client)
+	err := terraform.WithRetryableErrors(t, terraformOptions, func() error {
+		groupName := terraformOptions.Vars["group_name"].(string)
+		userName := terraformOptions.Vars["user_name"].(string)
 
 		foundAttachment := &goaviatrix.RbacGroupUserAttachment{
-			GroupName: rs.Primary.Attributes["group_name"],
-			UserName:  rs.Primary.Attributes["user_name"],
+			GroupName: groupName,
+			UserName:  userName,
 		}
 
 		foundAttachment2, err := client.GetRbacGroupUserAttachment(foundAttachment)
 		if err != nil {
 			return err
 		}
-		if foundAttachment2.GroupName != rs.Primary.Attributes["group_name"] {
-			return fmt.Errorf("'group_name
-		if foundAttachment2.GroupName != rs.Primary.Attributes["group_name"] {
-			return fmt.Errorf("'group_name' Not found in created attributes")
+		if foundAttachment2.GroupName != groupName {
+			return fmt.Errorf("'group_name' not found in created attributes")
 		}
-		if foundAttachment2.UserName != rs.Primary.Attributes["user_name"] {
-			return fmt.Errorf("'user_name' Not found in created attributes")
+		if foundAttachment2.UserName != userName {
+			return fmt.Errorf("'user_name' not found in created attributes")
 		}
 
-		*rAttachment = *foundAttachment2
+		*attachment = *foundAttachment2
 		return nil
-	}
+	})
+
+	assert.NoError(t, err)
 }
 
-func testAccCheckRbacGroupUserAttachmentDestroy(s *terraform.State) error {
-	client := testAccProvider.Meta().(*goaviatrix.Client)
-
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_rbac_group_user_attachment" {
-			continue
-		}
-		foundAttachment := &goaviatrix.RbacGroupUserAttachment{
-			GroupName: rs.Primary.Attributes["group_name"],
-			UserName:  rs.Primary.Attributes["user_name"],
-		}
-
-		_, err := client.GetRbacGroupUserAttachment(foundAttachment)
-		if err != goaviatrix.ErrNotFound {
-			if strings.Contains(err.Error(), "is invalid") {
-				return nil
-			}
-			return fmt.Errorf("rbac group user attachment still exists")
-		}
+func checkResourceAttrs(t *testing.T, terraformOptions *terraform.Options, resourceName string, rName string) {
+	expectedResourceAttrs := map[string]string{
+		"group_name": fmt.Sprintf("tf-%s", rName),
+		"user_name":  fmt.Sprintf("tf-user-%s", rName),
 	}
 
-	return nil
+	actualResourceAttrs := terraform.OutputAll(t, terraformOptions)
+
+	for attrName, expectedAttrValue := range expectedResourceAttrs {
+		actualAttrValue := actualResourceAttrs[attrName].Value
+
+		assert.Equal(t, expectedAttrValue, actualAttrValue, "Attribute %s does not match", attrName)
+	}
 }
