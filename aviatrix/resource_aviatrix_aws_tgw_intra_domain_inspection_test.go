@@ -1,19 +1,23 @@
-package aviatrix
+package test
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
 )
 
-func TestAccAviatrixAwsTgwIntraDomainInspection_basic(t *testing.T) {
+func TestAwsTgwIntraDomainInspection(t *testing.T) {
+	t.Parallel()
+
 	accName := "acc-" + acctest.RandString(5)
 	tgwName := "tgw-" + acctest.RandString(5)
 	routeDomainName := "sd-" + acctest.RandString(5)
@@ -23,31 +27,57 @@ func TestAccAviatrixAwsTgwIntraDomainInspection_basic(t *testing.T) {
 	if skipAcc == "yes" {
 		t.Skip("Skipping Aws Tgw Intra Domain Inspection test as SKIP_AWS_TGW_INTRA_DOMAIN_INSPECTION is set")
 	}
-	resourceName := "aviatrix_aws_tgw_intra_domain_inspection.test"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
+	terraformOptions := &terraform.Options{
+		TerraformDir: ".",
+		Vars: map[string]interface{}{
+			"account_name":             accName,
+			"aws_account_number":       os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key":           os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":           os.Getenv("AWS_SECRET_KEY"),
+			"tgw_name":                 tgwName,
+			"route_domain_name":        routeDomainName,
+			"firewall_domain_name":     firewallDomainName,
+			"aviatrix_vpc_cidr":        "10.0.0.0/16",
+			"aviatrix_vpc_name":        "firenet-vpc",
+			"aviatrix_gw_size":         "c5.xlarge",
+			"aviatrix_subnet_cidr":     "10.0.0.0/28",
+			"aviatrix_vpc_region":      "us-west-1",
+			"enable_firenet":           true,
+			"enable_hybrid_connection": true,
+			"aviatrix_firewall":        true,
+			"terraform_plan_verbosity": "debug",
 		},
-		Providers:    testAccProvidersVersionValidation,
-		CheckDestroy: testAccCheckAwsTgwIntraDomainInspectionDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccAwsTgwIntraDomainInspectionBasic(accName, tgwName, routeDomainName, firewallDomainName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckAwsTgwIntraDomainInspectionExists(resourceName, tgwName, routeDomainName),
-					resource.TestCheckResourceAttr(resourceName, "tgw_name", tgwName),
-					resource.TestCheckResourceAttr(resourceName, "route_domain_name", routeDomainName),
-					resource.TestCheckResourceAttr(resourceName, "firewall_domain_name", firewallDomainName),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	intraDomainInspection := &goaviatrix.IntraDomainInspection{
+		TgwName:         tgwName,
+		RouteDomainName: routeDomainName,
+	}
+
+	// Wait for the resource to be created
+	err := retryWithTimeout(func() error {
+		return checkIntraDomainInspectionExists(t, intraDomainInspection)
+	}, 10*time.Minute, 5*time.Second)
+
+	assert.NoError(t, err, "Failed to create Intra Domain Inspection resource")
+
+	// Import the resource and verify its state
+	importedTfState := terraform.ImportStateFromFile(t, terraformOptions.StatePath)
+	importedTerraformOptions := terraformOptions
+	importedTerraformOptions.State = importedTfState
+
+	terraform.Refresh(t, importedTerraformOptions)
+
+	terraformOutputs := terraform.OutputAll(t, importedTerraformOptions)
+	assert.NotNil(t, terraformOutputs["intra_domain_inspection_id"])
+	assert.Equal(t, tgwName, terraformOutputs["tgw_name"])
+	assert.Equal(t, routeDomainName, terraformOutputs["route_domain_name"])
+	assert.Equal(t, firewallDomainName, terraformOutputs["firewall_domain_name"])
 }
 
 func testAccAwsTgwIntraDomainInspectionBasic(accName string, tgwName string, routeDomainName string, firewallDomainName string) string {

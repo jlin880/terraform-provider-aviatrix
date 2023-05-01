@@ -7,25 +7,24 @@ import (
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
+
 func TestAccAviatrixCloudnTransitGatewayAttachment_basic(t *testing.T) {
-	if os.Getenv("SKIP_CLOUDN_TRANSIT_GATEWAY_ATTACHMENT") == "yes" {
+	skipAcc := os.Getenv("SKIP_CLOUDN_TRANSIT_GATEWAY_ATTACHMENT")
+	if skipAcc == "yes" {
 		t.Skip("Skipping transit gateway and cloudn attachment test as SKIP_CLOUDN_TRANSIT_GATEWAY_ATTACHMENT is set")
 	}
 
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_cloudn_transit_gateway_attachment.test_cloudn_transit_gateway_attachment"
-
-	ctx := context.Background()
+	testName := fmt.Sprintf("terratest-%s", strings.ToLower(random.UniqueId()))
 	terraformOptions := &terraform.Options{
 		TerraformDir: "./",
 		Vars: map[string]interface{}{
 			"device_name":                           os.Getenv("CLOUDN_DEVICE_NAME"),
 			"transit_gateway_name":                  os.Getenv("TRANSIT_GATEWAY_NAME"),
-			"connection_name":                       fmt.Sprintf("connection-%s", rName),
+			"connection_name":                       fmt.Sprintf("connection-%s", testName),
 			"transit_gateway_bgp_asn":               "65707",
 			"cloudn_bgp_asn":                        os.Getenv("CLOUDN_BGP_ASN"),
 			"cloudn_lan_interface_neighbor_ip":      os.Getenv("CLOUDN_LAN_INTERFACE_NEIGHBOR_IP"),
@@ -40,114 +39,65 @@ func TestAccAviatrixCloudnTransitGatewayAttachment_basic(t *testing.T) {
 
 	terraform.InitAndApply(t, terraformOptions)
 
-	testAccCheckCloudnTransitGatewayAttachmentExists := func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[resourceName]
-		if !ok {
-			return fmt.Errorf("cloudn_transit_gateway_attachment not found: %s", resourceName)
-		}
-		if rs.Primary.ID == "" {
-			return fmt.Errorf("no cloudn_transit_gateway_attachment ID is set")
-		}
+	resourceName := "aviatrix_cloudn_transit_gateway_attachment.test_cloudn_transit_gateway_attachment"
 
-		client := testAccProviderVersionValidation.Meta().(*goaviatrix.Client)
+	err := testAccCheckCloudnTransitGatewayAttachmentExists(resourceName)
+	assert.Nil(t, err)
 
-		attachment := &goaviatrix.CloudnTransitGatewayAttachment{
-			ConnectionName: rs.Primary.Attributes["connection_name"],
-		}
+	// Import the resource and verify that it matches the current state
+	importedResource := terraform.ImportState(t, terraformOptions, resourceName)
 
-		_, err := client.GetCloudnTransitGatewayAttachment(ctx, attachment.ConnectionName)
-		if err != nil {
-			return err
-		}
-		if attachment.ConnectionName != rs.Primary.ID {
-			return fmt.Errorf("cloudn_transit_gateway_attachment not found")
-		}
+	assert.Equal(t, resourceName, importedResource.Primary.ID)
+	assert.Equal(t, "connection-"+testName, importedResource.Primary.Attributes["connection_name"])
+}
 
-		return nil
+func testAccCheckCloudnTransitGatewayAttachmentExists(resourceName string) error {
+	client := goaviatrix.NewClientFromEnvParams()
+
+	rs, err := terraform.GetResource(resourceName)
+	if err != nil {
+		return err
 	}
 
-	terraform.Import(t, terraformOptions, []string{resourceName})
-	resource.Test(t, resource.TestCase{
-		Providers:    testAccProvidersVersionValidation,
-		CheckDestroy: testAccCheckCloudnTransitGatewayAttachmentDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: terraformOptions.RawConfig,
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckCloudnTransitGatewayAttachmentExists,
-				),
-			},
-		},
-	})
-}
-
-
-func testAccCloudnTransitGatewayAttachmentBasic(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_cloudn_transit_gateway_attachment" "test_cloudn_transit_gateway_attachment" {
-	device_name                           = "%[2]s"
-	transit_gateway_name                  = "%[3]s"
-	connection_name                       = "connection-%[1]s"
-	transit_gateway_bgp_asn               = "65707"
-	cloudn_bgp_asn                        = "%[4]s"
-	cloudn_lan_interface_neighbor_ip      = "%[5]s"
-	cloudn_lan_interface_neighbor_bgp_asn = "%[6]s"
-	enable_over_private_network           = true
-	enable_jumbo_frame                    = false
-	enable_dead_peer_detection            = true
-}
-`, rName, os.Getenv("CLOUDN_DEVICE_NAME"), os.Getenv("TRANSIT_GATEWAY_NAME"), os.Getenv("CLOUDN_BGP_ASN"),
-		os.Getenv("CLOUDN_LAN_INTERFACE_NEIGHBOR_IP"), os.Getenv("CLOUDN_LAN_INTERFACE_NEIGHBOR_BGP_ASN"))
-}
-
-func testAccCheckCloudnTransitGatewayAttachmentExists(n string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[n]
-		if !ok {
-			return fmt.Errorf("cloudn_transit_gateway_attachment Not found: %s", n)
-		}
-		if rs.Primary.ID == "" {
-			return fmt.Errorf("no cloudn_transit_gateway_attachment ID is set")
-		}
-
-		client := testAccProviderVersionValidation.Meta().(*goaviatrix.Client)
-
-		attachment := &goaviatrix.CloudnTransitGatewayAttachment{
-			ConnectionName: rs.Primary.Attributes["connection_name"],
-		}
-
-		_, err := client.GetCloudnTransitGatewayAttachment(context.Background(), attachment.ConnectionName)
-		if err != nil {
-			return err
-		}
-		if attachment.ConnectionName != rs.Primary.ID {
-			return fmt.Errorf("cloudn_transit_gateway_attachment not found")
-		}
-
-		return nil
+	if rs.Primary.ID == "" {
+		return fmt.Errorf("no cloudn_transit_gateway_attachment ID is set")
 	}
-}
 
-func testAccCheckCloudnTransitGatewayAttachmentDestroy(s *terraform.State) error {
-	client := testAccProviderVersionValidation.Meta().(*goaviatrix.Client)
+	attachment := &goaviatrix.CloudnTransitGatewayAttachment{
+		ConnectionName: rs.Primary.Attributes["connection_name"],
+	}
 
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_cloudn_transit_gateway_attachment" {
-			continue
-		}
-		attachment := &goaviatrix.CloudnTransitGatewayAttachment{
-			ConnectionName: rs.Primary.Attributes["connection_name"],
-		}
-		_, err := client.GetCloudnTransitGatewayAttachment(context.Background(), attachment.ConnectionName)
-		if err == nil {
-			return fmt.Errorf("cloudn_transit_gateway_attachment still exists")
-		}
+	_, err = client.GetCloudnTransitGatewayAttachment(context.Background(), attachment.ConnectionName)
+	if err != nil {
+		return err
+	}
+	if attachment.ConnectionName != rs.Primary.ID {
+		return fmt.Errorf("cloudn_transit_gateway_attachment not found")
 	}
 
 	return nil
 }
 
-func testAccAviatrixCloudnTransitGatewayAttachmentPreCheck(t *testing.T) {
+func testCloudnTransitGatewayAttachmentDestroy(t *testing.T, terraformOptions *terraform.Options) {
+	client := goaviatrix.NewClientFromEnvParams()
+
+	err := terraform.DestroyE(t, terraformOptions)
+	require.NoError(t, err)
+
+	for _, rs := range terraformOptions.State().RootModule().Resources {
+		if rs.Type != "aviatrix_cloudn_transit_gateway_attachment" {
+			continue
+		}
+
+		attachment := &goaviatrix.CloudnTransitGatewayAttachment{
+			ConnectionName: rs.Primary.Attributes["connection_name"],
+		}
+		_, err := client.GetCloudnTransitGatewayAttachment(context.Background(), attachment.ConnectionName)
+		require.Error(t, err)
+	}
+}
+
+func testAviatrixCloudnTransitGatewayAttachmentPreCheck(t *testing.T) {
 	required := []string{
 		"TRANSIT_GATEWAY_NAME",
 		"CLOUDN_DEVICE_NAME",

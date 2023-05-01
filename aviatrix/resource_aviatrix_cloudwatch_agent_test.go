@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+
 func TestAccAviatrixCloudwatchAgent_basic(t *testing.T) {
 	if os.Getenv("SKIP_CLOUDWATCH_AGENT") == "yes" {
 		t.Skip("Skipping cloudwatch agent test as SKIP_CLOUDWATCH_AGENT is set")
