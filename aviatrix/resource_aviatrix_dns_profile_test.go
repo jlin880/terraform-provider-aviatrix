@@ -12,42 +12,55 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+)
 
 func TestAccAviatrixDNSProfile_basic(t *testing.T) {
-	if os.Getenv("SKIP_DNS_PROFILE") == "yes" {
-		t.Skip("Skipping DNS profile test as SKIP_DNS_PROFILE is set")
-	}
+	t.Parallel()
 
 	resourceName := "aviatrix_dns_profile.test"
-	profileName := acctest.RandString(5)
+	profileName := fmt.Sprintf("test-dns-profile-%s", random.UniqueId())
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"name":                 profileName,
+			"global_dns_servers":   []string{"8.8.8.8", "8.8.3.4"},
+			"local_domain_names":   []string{"avx.internal.com", "avx.media.com"},
+			"lan_dns_servers":      []string{"1.2.3.4", "5.6.7.8"},
+			"wan_dns_servers":      []string{"2.3.4.5", "6.7.8.9"},
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckDNSProfileDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccDNSProfileBasic(profileName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckDNSProfileExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "name", profileName),
-					resource.TestCheckResourceAttr(resourceName, "global_dns_servers.0", "8.8.8.8"),
-					resource.TestCheckResourceAttr(resourceName, "local_domain_names.0", "avx.internal.com"),
-					resource.TestCheckResourceAttr(resourceName, "lan_dns_servers.0", "1.2.3.4"),
-					resource.TestCheckResourceAttr(resourceName, "wan_dns_servers.0", "2.3.4.5"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	}
+
+	// Run Terraform apply and capture the resource ID output
+	terraformOutput := terraform.InitAndApplyAndGetOutput(t, terraformOptions, "test_dns_profile")
+
+	// Verify the DNS profile exists
+	client := aviatrix.NewClientFromEnv()
+	dnsProfile, err := client.GetDNSProfile(context.Background(), profileName)
+	assert.NoError(t, err)
+	assert.Equal(t, profileName, dnsProfile.Name)
+	assert.Equal(t, terraformOutput["global_dns_servers"].([]interface{}), dnsProfile.GlobalDNSServers)
+	assert.Equal(t, terraformOutput["local_domain_names"].([]interface{}), dnsProfile.LocalDomainNames)
+	assert.Equal(t, terraformOutput["lan_dns_servers"].([]interface{}), dnsProfile.LANDNSServers)
+	assert.Equal(t, terraformOutput["wan_dns_servers"].([]interface{}), dnsProfile.WANDNSServers)
+
+	// Import the DNS profile and verify it matches the Terraform state
+	importedResourceName := "aviatrix_dns_profile.import"
+	importedResource := terraform.Import(t, terraformOptions, importedResourceName)
+	assert.Equal(t, resourceName, importedResource)
+
+	terraform.OutputAll(t, terraformOptions)
 }
-
 func testAccDNSProfileBasic(profileName string) string {
 	return fmt.Sprintf(`
 resource "aviatrix_dns_profile" "test" {

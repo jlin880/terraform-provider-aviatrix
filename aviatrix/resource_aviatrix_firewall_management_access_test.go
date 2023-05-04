@@ -1,20 +1,21 @@
-package aviatrix
+package aviatrix_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixFirewallManagementAccess_basic(t *testing.T) {
 	var firewallManagementAccess goaviatrix.FirewallManagementAccess
 
-	rName := acctest.RandString(5)
+	rName := random.UniqueId()
 
 	skipAcc := os.Getenv("SKIP_FIREWALL_MANAGEMENT_ACCESS")
 	if skipAcc == "yes" {
@@ -28,66 +29,50 @@ func TestAccAviatrixFirewallManagementAccess_basic(t *testing.T) {
 	}
 
 	if skipAccAWS != "yes" {
-		resourceName := "aviatrix_firewall_management_access.test"
-		msgCommonAws := ". Set 'SKIP_FIREWALL_MANAGEMENT_ACCESS_AWS' to 'yes' to skip firewall management access tests in AWS"
-		resource.Test(t, resource.TestCase{
-			PreCheck: func() {
-				testAccPreCheck(t)
-				preGatewayCheck(t, msgCommonAws)
-				preGateway2Check(t, msgCommonAws)
-			},
-			Providers:    testAccProviders,
-			CheckDestroy: testAccCheckFirewallManagementAccessDestroy,
-			Steps: []resource.TestStep{
-				{
-					Config: testAccFirewallManagementAccessConfigBasicAWS(rName),
-					Check: resource.ComposeTestCheckFunc(
-						testAccCheckFirewallManagementAccessExists(resourceName, &firewallManagementAccess),
-						resource.TestCheckResourceAttr(resourceName, "transit_firenet_gateway_name", fmt.Sprintf("tfg-%s", rName)),
-						resource.TestCheckResourceAttr(resourceName, "management_access_resource_name", fmt.Sprintf("SPOKE:tfg-aws-%s", rName)),
-					),
-				},
-				{
-					ResourceName:      resourceName,
-					ImportState:       true,
-					ImportStateVerify: true,
-				},
-			},
-		})
-	} else {
-		t.Log("Skipping transit firenet policy tests in AWS as 'SKIP_TRANSIT_FIRENET_POLICY_AWS' is set")
+		testAccAviatrixFirewallManagementAccessAWS(t, rName, &firewallManagementAccess)
 	}
 
 	if skipAccAZURE != "yes" {
-		resourceName := "aviatrix_firewall_management_access.test"
-		msgCommonAZURE := ". Set 'SKIP_FIREWALL_MANAGEMENT_ACCESS_AZURE' to 'yes' to skip firewall management access tests in Azure"
-		resource.Test(t, resource.TestCase{
-			PreCheck: func() {
-				testAccPreCheck(t)
-				preGatewayCheckAZURE(t, msgCommonAZURE)
-				preGateway2CheckAZURE(t, msgCommonAZURE)
-			},
-			Providers:    testAccProviders,
-			CheckDestroy: testAccCheckFirewallManagementAccessDestroy,
-			Steps: []resource.TestStep{
-				{
-					Config: testAccFirewallManagementAccessConfigBasicAZURE(rName),
-					Check: resource.ComposeTestCheckFunc(
-						testAccCheckFirewallManagementAccessExists(resourceName, &firewallManagementAccess),
-						resource.TestCheckResourceAttr(resourceName, "transit_firenet_gateway_name", fmt.Sprintf("tfg-%s", rName)),
-						resource.TestCheckResourceAttr(resourceName, "management_access_resource_name", fmt.Sprintf("SPOKE:tfg-azure-%s", rName)),
-					),
-				},
-				{
-					ResourceName:      resourceName,
-					ImportState:       true,
-					ImportStateVerify: true,
-				},
-			},
-		})
-	} else {
-		t.Log("Skipping transit firenet policy tests in Azure as 'SKIP_TRANSIT_FIRENET_POLICY_AZURE' is set")
+		testAccAviatrixFirewallManagementAccessAzure(t, rName, &firewallManagementAccess)
 	}
+}
+
+func testAccAviatrixFirewallManagementAccessAWS(t *testing.T, rName string, firewallManagementAccess *goaviatrix.FirewallManagementAccess) {
+	terraformOptions, err := testAccAviatrixFirewallManagementAccessConfigAWS(rName)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	err = testAccCheckFirewallManagementAccessExists(t, terraformOptions, firewallManagementAccess)
+	assert.NoError(t, err)
+
+	terraform.Import(t, terraformOptions)
+
+	err = testAccCheckFirewallManagementAccessExists(t, terraformOptions, firewallManagementAccess)
+	assert.NoError(t, err)
+}
+
+func testAccAviatrixFirewallManagementAccessAzure(t *testing.T, rName string, firewallManagementAccess *goaviatrix.FirewallManagementAccess) {
+	terraformOptions, err := testAccAviatrixFirewallManagementAccessConfigAzure(rName)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	err = testAccCheckFirewallManagementAccessExists(t, terraformOptions, firewallManagementAccess)
+	assert.NoError(t, err)
+
+	terraform.Import(t, terraformOptions)
+
+	err = testAccCheckFirewallManagementAccessExists(t, terraformOptions, firewallManagementAccess)
+	assert.NoError(t, err)
 }
 
 func testAccFirewallManagementAccessConfigBasicAWS(rName string) string {

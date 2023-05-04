@@ -4,46 +4,68 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/avianto/go-terraform-aviatrix/helper"
+	"github.com/avianto/go-terraform-aviatrix/provider"
+	"github.com/avianto/go-terraform-aviatrix/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixEdgeSpokeTransitAttachment_basic(t *testing.T) {
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_edge_spoke_transit_attachment.test"
+	resourceName := fmt.Sprintf("aviatrix_edge_spoke_transit_attachment.test-%s", strings.ToLower(random.UniqueId()))
 
 	skipAcc := os.Getenv("SKIP_EDGE_SPOKE_TRANSIT_ATTACHMENT")
 	if skipAcc == "yes" {
 		t.Skip("Skipping Edge as a Spoke transit attachment tests as 'SKIP_EDGE_SPOKE_TRANSIT_ATTACHMENT' is set")
 	}
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preEdgeSpokeTransitAttachmentCheck(t)
+	terraformOptions, err := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+		TerraformDir: "../examples/edge_spoke_transit_attachment/",
+		Vars: map[string]interface{}{
+			"acc_name":         fmt.Sprintf("tfa-%s", strings.ToLower(random.UniqueId())),
+			"aws_account":      os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key":   os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":   os.Getenv("AWS_SECRET_KEY"),
+			"aws_region":       os.Getenv("AWS_REGION"),
+			"aws_vpc_id":       os.Getenv("AWS_VPC_ID"),
+			"aws_subnet":       os.Getenv("AWS_SUBNET"),
+			"spoke_gw_name":    os.Getenv("EDGE_SPOKE_NAME"),
+			"transit_gw_name":  fmt.Sprintf("tft-%s", strings.ToLower(random.UniqueId())),
+			"vpc_region":       os.Getenv("AWS_REGION"),
+			"vpc_account_name": fmt.Sprintf("tfa-%s", strings.ToLower(random.UniqueId())),
+			"gw_size":          "t2.micro",
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckEdgeSpokeTransitAttachmentDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccEdgeSpokeTransitAttachmentConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckEdgeSpokeTransitAttachmentExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "spoke_gw_name", fmt.Sprintf("tfs-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "transit_gw_name", fmt.Sprintf("tft-%s", rName)),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
+		NoColor: true,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Verify the Edge as a Spoke Transit Attachment exists
+	err = helper.Retry(func() error {
+		attachment := &provider.SpokeTransitAttachment{
+			SpokeGwName:   terraformOptions.Vars["spoke_gw_name"].(string),
+			TransitGwName: terraformOptions.Vars["transit_gw_name"].(string),
+		}
+		if err := provider.GetEdgeSpokeTransitAttachment(context.Background(), attachment); err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	assert.NoError(t, err)
+
+	// Verify the Terraform state
+	testAccCheckEdgeSpokeTransitAttachmentExists(resourceName, terraformOptions, t)
 }
 
 func preEdgeSpokeTransitAttachmentCheck(t *testing.T) {

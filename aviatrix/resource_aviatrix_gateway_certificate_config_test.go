@@ -11,35 +11,44 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
 
+import (
+    "context"
+    "fmt"
+    "testing"
+
+    "github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
+    "github.com/gruntwork-io/terratest/modules/random"
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
+)
+
 func TestAccAviatrixGatewayCertificateConfig_basic(t *testing.T) {
-	if os.Getenv("SKIP_GATEWAY_CERTIFICATE_CONFIG") == "yes" {
-		t.Skip("Skipping Branch Router test as SKIP_GATEWAY_CERTIFICATE_CONFIG is set")
-	}
+    if testing.Short() {
+        t.Skip("skipping test in short mode.")
+    }
 
-	resourceName := "aviatrix_gateway_certificate_config.test_gateway_certificate_config"
+    resourcePrefix := fmt.Sprintf("test-%s", random.UniqueId())
+    config := testAccGatewayCertificateConfigBasic(resourcePrefix)
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckGatewayCertificateConfigDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccGatewayCertificateConfigBasic(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckGatewayCertificateConfigExists(resourceName),
-				),
-			},
-			{
-				ResourceName:            resourceName,
-				ImportState:             true,
-				ImportStateVerify:       true,
-				ImportStateVerifyIgnore: []string{"ca_certificate", "ca_private_key"},
-			},
-		},
-	})
+    // create the resource
+    _, err := aviatrix.CreateGatewayCertificateConfig(t, config)
+    require.NoError(t, err)
+
+    // validate that the resource was created
+    status, err := aviatrix.GetGatewayCertificateStatus(t)
+    require.NoError(t, err)
+    assert.Equal(t, "enabled", status)
+
+    // cleanup
+    err = aviatrix.DeleteGatewayCertificateConfig(t, resourcePrefix)
+    require.NoError(t, err)
+
+    // validate that the resource was deleted
+    status, err = aviatrix.GetGatewayCertificateStatus(t)
+    require.NoError(t, err)
+    assert.Equal(t, "disabled", status)
 }
+
 
 func testAccGatewayCertificateConfigBasic() string {
 	return `

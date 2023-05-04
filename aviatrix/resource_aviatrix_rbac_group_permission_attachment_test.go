@@ -11,55 +11,70 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
+import (
+	"fmt"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
+)
 
 func TestAccAviatrixRbacGroupPermissionAttachment_basic(t *testing.T) {
 	var rbacGroupPermissionAttachment goaviatrix.RbacGroupPermissionAttachment
 
-	rName := acctest.RandString(5)
+	rName := random.UniqueId()
 
 	skipAcc := os.Getenv("SKIP_RBAC_GROUP_PERMISSION_ATTACHMENT")
 	if skipAcc == "yes" {
 		t.Skip("Skipping rbac group permission attachment tests as 'SKIP_RBAC_GROUP_PERMISSION_ATTACHMENT' is set")
 	}
 
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"group_name":      fmt.Sprintf("tf-%s", rName),
+			"permission_name": "all_write",
+		},
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
 	resourceName := "aviatrix_rbac_group_permission_attachment.test"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckRbacGroupPermissionAttachmentDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccRbacGroupPermissionAttachmentConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckRbacGroupPermissionAttachmentExists(resourceName, &rbacGroupPermissionAttachment),
-					resource.TestCheckResourceAttr(resourceName, "group_name", fmt.Sprintf("tf-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "permission_name", "all_write"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	err := terraform.Import(t, terraformOptions, resourceName)
+	assert.NoError(t, err)
+
+	rbacGroupPermissionAttachment.GroupName = terraform.Output(t, terraformOptions, "group_name")
+	rbacGroupPermissionAttachment.PermissionName = terraform.Output(t, terraformOptions, "permission_name")
+
+	assert.Equal(t, fmt.Sprintf("tf-%s", rName), rbacGroupPermissionAttachment.GroupName)
+	assert.Equal(t, "all_write", rbacGroupPermissionAttachment.PermissionName)
+
+	err = testAccCheckRbacGroupPermissionAttachmentExists(t, &rbacGroupPermissionAttachment)
+	assert.NoError(t, err)
 }
 
-func testAccRbacGroupPermissionAttachmentConfigBasic(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_rbac_group" "test" {
-	group_name = "tf-%s"
-}
-resource "aviatrix_rbac_group_permission_attachment" "test" {
-	group_name      = aviatrix_rbac_group.test.group_name
-	permission_name = "all_write"
-}
-	`, rName)
-}
+func testAccCheckRbacGroupPermissionAttachmentExists(t *testing.T, rAttachment *goaviatrix.RbacGroupPermissionAttachment) error {
+	client := goaviatrix.NewClientFromEnv()
 
+	foundAttachment, err := client.GetRbacGroupPermissionAttachment(rAttachment)
+	if err != nil {
+		return err
+	}
+
+	assert.Equal(t, rAttachment.GroupName, foundAttachment.GroupName)
+	assert.Equal(t, rAttachment.PermissionName, foundAttachment.PermissionName)
+
+	*rAttachment = *foundAttachment
+
+	return nil
+}
 func testAccCheckRbacGroupPermissionAttachmentExists(n string, rAttachment *goaviatrix.RbacGroupPermissionAttachment) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[n]

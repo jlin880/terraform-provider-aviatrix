@@ -1,16 +1,16 @@
 package aviatrix
-
 import (
 	"context"
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/stretchr/testify/assert"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
+	"github.com/gruntwork-io/terratest/modules/terraform"
 )
 
 func TestAccAviatrixEdgeSpoke_basic(t *testing.T) {
@@ -18,70 +18,64 @@ func TestAccAviatrixEdgeSpoke_basic(t *testing.T) {
 		t.Skip("Skipping Edge as a Spoke test as SKIP_EDGE_SPOKE is set")
 	}
 
-	resourceName := "aviatrix_edge_spoke.test"
-	gwName := "edge-" + acctest.RandString(5)
-	siteId := "site-" + acctest.RandString(5)
+	edgeName := fmt.Sprintf("edge-%s", random.UniqueId())
+	siteId := fmt.Sprintf("site-%s", random.UniqueId())
 	path, _ := os.Getwd()
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckEdgeSpokeDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccEdgeSpokeBasic(gwName, siteId, path),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckEdgeSpokeExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "gw_name", gwName),
-					resource.TestCheckResourceAttr(resourceName, "site_id", siteId),
-					resource.TestCheckResourceAttr(resourceName, "interfaces.0.ip_address", "10.230.5.32/24"),
-					resource.TestCheckResourceAttr(resourceName, "interfaces.1.ip_address", "10.230.3.32/24"),
-					resource.TestCheckResourceAttr(resourceName, "interfaces.2.ip_address", "172.16.15.162/20"),
-				),
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"gw_name":                edgeName,
+			"site_id":                siteId,
+			"ztp_file_type":          "iso",
+			"ztp_file_download_path": path,
+			"interfaces": []interface{}{
+				map[string]interface{}{
+					"name":          "eth0",
+					"type":          "WAN",
+					"ip_address":    "10.230.5.32/24",
+					"gateway_ip":    "10.230.5.100",
+					"wan_public_ip": "64.71.24.221",
+				},
+				map[string]interface{}{
+					"name":       "eth1",
+					"type":       "LAN",
+					"ip_address": "10.230.3.32/24",
+				},
+				map[string]interface{}{
+					"name":        "eth2",
+					"type":        "MANAGEMENT",
+					"enable_dhcp": false,
+					"ip_address":  "172.16.15.162/20",
+					"gateway_ip":  "172.16.0.1",
+				},
 			},
-			{
-				ResourceName:            resourceName,
-				ImportState:             true,
-				ImportStateVerify:       true,
-				ImportStateVerifyIgnore: []string{"ztp_file_type", "ztp_file_download_path"},
-			},
 		},
-	})
-}
+	}
 
-func testAccEdgeSpokeBasic(gwName, siteId, path string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_edge_spoke" "test" {
-	gw_name                = "%s"
-	site_id                = "%s"
-	ztp_file_type          = "iso"
-	ztp_file_download_path = "%s"
+	defer terraform.Destroy(t, terraformOptions)
 
-	interfaces {
-		name          = "eth0"
-		type          = "WAN"
-		ip_address    = "10.230.5.32/24"
-		gateway_ip    = "10.230.5.100"
-		wan_public_ip = "64.71.24.221"
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Check that the edge as a spoke resource exists
+	edgeSpoke, err := getEdgeSpoke(t, terraformOptions, edgeName)
+	assert.NoError(t, err)
+	assert.NotNil(t, edgeSpoke)
+	assert.Equal(t, edgeName, edgeSpoke.GwName)
+
+	// Import the edge as a spoke resource
+	importedTerraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		ImportState:  fmt.Sprintf("aviatrix_edge_spoke.test %s", edgeName),
 	}
-	
-	interfaces {
-		name       = "eth1"
-		type       = "LAN"
-		ip_address = "10.230.3.32/24"
-	}
-	
-	interfaces {
-		name        = "eth2"
-		type        = "MANAGEMENT"
-		enable_dhcp = false
-		ip_address  = "172.16.15.162/20"
-		gateway_ip  = "172.16.0.1"
-	}
-}
-  `, gwName, siteId, path)
+
+	terraform.Import(t, importedTerraformOptions)
+
+	// Verify that the imported resource exists
+	importedEdgeSpoke, err := getEdgeSpoke(t, terraformOptions, edgeName)
+	assert.NoError(t, err)
+	assert.NotNil(t, importedEdgeSpoke)
+	assert.Equal(t, edgeName, importedEdgeSpoke.GwName)
 }
 
 func testAccCheckEdgeSpokeExists(resourceName string) resource.TestCheckFunc {

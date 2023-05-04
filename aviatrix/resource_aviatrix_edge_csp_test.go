@@ -1,4 +1,4 @@
-package aviatrix
+package aviatrix_test
 
 import (
 	"context"
@@ -6,11 +6,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixEdgeCSP_basic(t *testing.T) {
@@ -18,37 +16,59 @@ func TestAccAviatrixEdgeCSP_basic(t *testing.T) {
 		t.Skip("Skipping Edge CSP test as SKIP_EDGE_CSP is set")
 	}
 
-	resourceName := "aviatrix_edge_csp.test"
-	accountName := "edge-csp-acc-" + acctest.RandString(5)
-	gwName := "edge-csp-" + acctest.RandString(5)
-	siteId := "site-" + acctest.RandString(5)
+	// Generate a random resource name to avoid collisions
+	resourceName := fmt.Sprintf("aviatrix_edge_csp.test-%s", random.UniqueId())
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
+	// Set up Terraform options
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../examples/edge_csp",
+
+		// Variables to pass to our Terraform code using -var options
+		Vars: map[string]interface{}{
+			"account_name":      fmt.Sprintf("edge-csp-acc-%s", random.UniqueId()),
+			"gw_name":           fmt.Sprintf("edge-csp-%s", random.UniqueId()),
+			"site_id":           fmt.Sprintf("site-%s", random.UniqueId()),
+			"project_uuid":      os.Getenv("EDGE_CSP_PROJECT_UUID"),
+			"compute_node_uuid": os.Getenv("EDGE_CSP_COMPUTE_NODE_UUID"),
+			"template_uuid":     os.Getenv("EDGE_CSP_TEMPLATE_UUID"),
+			"username":          os.Getenv("EDGE_CSP_USERNAME"),
+			"password":          os.Getenv("EDGE_CSP_PASSWORD"),
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckEdgeCSPDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccEdgeCSPBasic(accountName, gwName, siteId),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckEdgeCSPExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "gw_name", gwName),
-					resource.TestCheckResourceAttr(resourceName, "site_id", siteId),
-					resource.TestCheckResourceAttr(resourceName, "interfaces.0.ip_address", "10.230.5.32/24"),
-					resource.TestCheckResourceAttr(resourceName, "interfaces.1.ip_address", "10.230.3.32/24"),
-					resource.TestCheckResourceAttr(resourceName, "interfaces.2.ip_address", "172.16.15.162/20"),
-				),
-			},
-			{
-				ResourceName:            resourceName,
-				ImportState:             true,
-				ImportStateVerify:       true,
-				ImportStateVerifyIgnore: []string{"ztp_file_type", "ztp_file_download_path"},
-			},
+	}
+
+	// Clean up resources when the test finishes
+	defer terraform.Destroy(t, terraformOptions)
+
+	// Deploy the Terraform code
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Check that the Edge CSP was created successfully
+	gwName := terraform.Output(t, terraformOptions, "gw_name")
+	edgeCSP, err := aviatrixClient.GetEdgeCSP(context.Background(), gwName)
+	assert.NoError(t, err)
+	assert.Equal(t, gwName, edgeCSP.GwName)
+	assert.Equal(t, "10.230.5.32/24", edgeCSP.Interfaces[0].IpAddress)
+	assert.Equal(t, "10.230.3.32/24", edgeCSP.Interfaces[1].IpAddress)
+	assert.Equal(t, "172.16.15.162/20", edgeCSP.Interfaces[2].IpAddress)
+
+	// Import the Edge CSP into Terraform state
+	importedResourceName := fmt.Sprintf("aviatrix_edge_csp.test-import-%s", random.UniqueId())
+	importedTerraformOptions := &terraform.Options{
+		TerraformDir: "../examples/edge_csp",
+
+		// Variables to pass to our Terraform code using -var options
+		Vars: map[string]interface{}{
+			"account_name": terraformOptions.Vars["account_name"],
+			"gw_name":      gwName,
+			"username":     terraformOptions.Vars["username"],
+			"password":     terraformOptions.Vars["password"],
 		},
-	})
+	}
+
+	// Import the Edge CSP into Terraform state
+	terraform.Import(t, importedTerraformOptions, importedResourceName)
+	importedOutput := terraform.Output(t, importedTerraformOptions, "interfaces.0.ip_address")
+	assert.Equal(t, "10.230.5.32/24", importedOutput)
 }
 
 func testAccEdgeCSPBasic(accountName, gwName, siteId string) string {

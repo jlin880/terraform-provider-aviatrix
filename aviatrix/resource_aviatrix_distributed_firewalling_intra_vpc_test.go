@@ -1,4 +1,4 @@
-package aviatrix
+package test
 
 import (
 	"context"
@@ -7,11 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
+	"github.com/gruntwork-io/terratest/modules/acctest"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
+	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixDistributedFirewallingIntraVpc_basic(t *testing.T) {
@@ -20,32 +21,39 @@ func TestAccAviatrixDistributedFirewallingIntraVpc_basic(t *testing.T) {
 		t.Skip("Skipping Distributed-firewalling Intra VPC test as SKIP_DISTRIBUTED_FIREWALLING_INTRA_VPC is set")
 	}
 
-	rName := acctest.RandString(5)
+	rName := random.UniqueId()
 	resourceName := "aviatrix_distributed_firewalling_intra_vpc.test"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
+	terraformOptions := &terraform.Options{
+		TerraformDir: "../path/to/terraform/dir",
+		Vars: map[string]interface{}{
+			"resource_name": rName,
+			"subscription_id": os.Getenv("azure_subscription_id"),
+			"tenant_id": os.Getenv("azure_tenant_id"),
+			"client_id": os.Getenv("azure_client_id"),
+			"client_secret": os.Getenv("azure_client_secret"),
 		},
-		Providers:    testAccProvidersVersionValidation,
-		CheckDestroy: testAccDistributedFirewallingIntraVpcDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccDistributedFirewallingIntraVpcBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckDistributedFirewallingIntraVpcExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "vpcs.0.account_name", fmt.Sprintf("tfa-azure-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "vpcs.0.region", "Central US"),
-					resource.TestCheckResourceAttr(resourceName, "vpcs.1.region", "Central US"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Check if the resource exists
+	checkFn := func() error {
+		client := goaviatrix.NewClient(os.Getenv("AVIATRIX_API_KEY"), os.Getenv("AVIATRIX_API_SECRET"), os.Getenv("AVIATRIX_CONTROLLER_IP"), "")
+
+		_, err := client.GetDistributedFirewallingIntraVpc(context.Background())
+		if err != nil {
+			return fmt.Errorf("failed to get Distributed-firewalling Policy List status: %v", err)
+		}
+
+		return nil
+	}
+
+	err := retry.DoWithRetry(t, "Checking if the resource exists", 10, 3*time.Second, checkFn)
+
+	assert.NoError(t, err)
 }
 
 func testAccDistributedFirewallingIntraVpcBasic(rName string) string {

@@ -1,4 +1,4 @@
-package aviatrix
+package test
 
 import (
 	"context"
@@ -6,11 +6,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/AviatrixSystems/terraform-provider-aviatrix/goaviatrix"
 )
 
 func prePrivateModeCheck(t *testing.T, msgEnd string) {
@@ -20,6 +20,7 @@ func prePrivateModeCheck(t *testing.T, msgEnd string) {
 		}
 	}
 }
+
 func TestAccAviatrixPrivateModeLb_basic(t *testing.T) {
 	rName := acctest.RandString(5)
 
@@ -30,99 +31,50 @@ func TestAccAviatrixPrivateModeLb_basic(t *testing.T) {
 	msgCommon := "Set SKIP_PRIVATE_MODE_LB to yes to skip Controller Private Mode load balancer tests"
 	resourceName := "aviatrix_private_mode_lb.test"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, msgCommon)
-			prePrivateModeCheck(t, msgCommon)
+	terraformOptions := &terraform.Options{
+		TerraformDir: ".",
+		Vars: map[string]interface{}{
+			"rname":             rName,
+			"aws_account_num":   os.Getenv("AWS_ACCOUNT_NUMBER"),
+			"aws_access_key":    os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key":    os.Getenv("AWS_SECRET_KEY"),
+			"controller_vpc_id": os.Getenv("CONTROLLER_VPC_ID"),
+			"region":            os.Getenv("AWS_REGION"),
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccAviatrixPrivateModeLbDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccAviatrixPrivateModeLbBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccAviatrixPrivateModeLbExists(resourceName),
-					resource.TestCheckResourceAttr(resourceName, "account_name", fmt.Sprintf("tfa-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "region", os.Getenv("AWS_REGION")),
-					resource.TestCheckResourceAttr(resourceName, "lb_type", "controller"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
-}
-
-func testAccAviatrixPrivateModeLbBasic(rName string) string {
-	return fmt.Sprintf(`
-resource "aviatrix_account" "test_account" {
-	account_name       = "tfa-%s"
-	cloud_type         = 1
-	aws_account_number = "%s"
-	aws_iam            = false
-	aws_access_key     = "%s"
-	aws_secret_key     = "%s"
-}
-
-resource "aviatrix_controller_private_mode_config" "test" {
-	enable_private_mode = true
-}
-
-resource "aviatrix_private_mode_lb" "test" {
-	account_name = aviatrix_account.test_account.account_name
-	vpc_id       = "%s"
-	region       = "%s"
-	lb_type      = "controller"
-
-	depends_on = [aviatrix_controller_private_mode_config.test]
-}
-	`, rName, os.Getenv("AWS_ACCOUNT_NUMBER"), os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"), os.Getenv("CONTROLLER_VPC_ID"), os.Getenv("AWS_REGION"))
-}
-
-func testAccAviatrixPrivateModeLbExists(n string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[n]
-		if !ok {
-			return fmt.Errorf("private mode load balancer Not found: %s", n)
-		}
-		if rs.Primary.ID == "" {
-			return fmt.Errorf("no private mode load balancer ID is set")
-		}
-
-		client := testAccProvider.Meta().(*goaviatrix.Client)
-
-		vpcId := rs.Primary.ID
-		_, err := client.GetPrivateModeLoadBalancer(context.Background(), vpcId)
-		if err != nil {
-			return err
-		}
-
-		return nil
 	}
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	assert.NotNil(t, terraformOptions, "Terraform options are nil")
+
+	// Test whether the resource exists
+	err := aviatrixPrivateModeLbExists(t, resourceName, terraformOptions)
+	assert.NoError(t, err, "Error thrown while checking if resource exists")
+
+	// Test that the correct attributes were set
+	assert.Equal(t, "tfa-"+rName, terraform.Output(t, terraformOptions, "account_name"))
+	assert.Equal(t, os.Getenv("AWS_REGION"), terraform.Output(t, terraformOptions, "region"))
+	assert.Equal(t, "controller", terraform.Output(t, terraformOptions, "lb_type"))
 }
 
-func testAccAviatrixPrivateModeLbDestroy(s *terraform.State) error {
-	client := testAccProvider.Meta().(*goaviatrix.Client)
+func aviatrixPrivateModeLbExists(t *testing.T, resourceName string, terraformOptions *terraform.Options) error {
+	resourceState := terraform.StateFromFile(t, terraformOptions.StatePath)
 
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "aviatrix_private_mode_lb" {
-			continue
-		}
+	client := aviatrix.NewClient(os.Getenv("AVIATRIX_API_ACCOUNT_NAME"), os.Getenv("AVIATRIX_API_KEY"), os.Getenv("AVIATRIX_CONTROLLER_IP"))
 
-		vpcId := rs.Primary.ID
-		_, err := client.GetPrivateModeLoadBalancer(context.Background(), vpcId)
-		if err != nil {
-			if err == goaviatrix.ErrNotFound {
-				return nil
-			}
-			return fmt.Errorf("error getting Private Mode load balancer after destroy: %s", err)
-		}
-		return fmt.Errorf("failed to destroy Private Mode load balancer")
+	vpcId := resourceState.RootModule().Outputs["this"].Value.(string)
+
+	lb, err := client.GetPrivateModeLoadBalancer(context.Background(), vpcId)
+	if err != nil {
+		return err
 	}
+
+	assert.Equal(t, lb.VpcID, vpcId)
+	assert.Equal(t, lb.AccountName, "tfa-"+terraformOptions.Vars["rname"].(string))
+	assert.Equal(t, lb.Region, os.Getenv("AWS_REGION"))
+	assert.Equal(t, lb.LBType, "controller")
 
 	return nil
 }

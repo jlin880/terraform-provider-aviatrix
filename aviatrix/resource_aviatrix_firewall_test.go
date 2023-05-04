@@ -1,67 +1,71 @@
-package aviatrix
+package aviatrix_test
 
 import (
-	"context"
-	"fmt"
-	"os"
-	"reflect"
-	"testing"
+    "context"
+    "fmt"
+    "os"
+    "testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+    "github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+    "github.com/gruntwork-io/terratest/modules/terraform"
+    "github.com/stretchr/testify/assert"
 )
 
 func TestAccAviatrixFirewall_basic(t *testing.T) {
-	var firewall goaviatrix.Firewall
+    var firewall goaviatrix.Firewall
 
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_firewall.test_firewall"
+    terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+        TerraformDir: "./",
+        Vars: map[string]interface{}{
+            "aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+            "aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
+            "aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
+            "aws_region":         os.Getenv("AWS_REGION"),
+            "aws_vpc_id":         os.Getenv("AWS_VPC_ID"),
+            "aws_subnet":         os.Getenv("AWS_SUBNET"),
+            "firewall_name":      "test-firewall",
+        },
+    })
 
-	skipAcc := os.Getenv("SKIP_FIREWALL")
-	if skipAcc == "yes" {
-		t.Skip("Skipping Firewall test as SKIP_FIREWALL is set")
-	}
-	msg := ". Set SKIP_FIREWALL to yes to skip firewall tests"
+    defer terraform.Destroy(t, terraformOptions)
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preGatewayCheck(t, msg)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckFirewallDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccFirewallConfigBasic(rName),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckFirewallExists("aviatrix_firewall.test_firewall", &firewall),
-					resource.TestCheckResourceAttr(resourceName, "gw_name", fmt.Sprintf("tfg-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "base_policy", "allow-all"),
-					resource.TestCheckResourceAttr(resourceName, "base_log_enabled", "false"),
-					resource.TestCheckResourceAttr(resourceName, "policy.#", "2"),
-					resource.TestCheckResourceAttr(resourceName, "policy.0.protocol", "tcp"),
-					resource.TestCheckResourceAttr(resourceName, "policy.0.src_ip", "10.15.0.224/32"),
-					resource.TestCheckResourceAttr(resourceName, "policy.0.log_enabled", "false"),
-					resource.TestCheckResourceAttr(resourceName, "policy.0.dst_ip", "10.12.0.172/32"),
-					resource.TestCheckResourceAttr(resourceName, "policy.0.action", "deny"),
-					resource.TestCheckResourceAttr(resourceName, "policy.0.port", "0:65535"),
-					resource.TestCheckResourceAttr(resourceName, "policy.1.protocol", "tcp"),
-					resource.TestCheckResourceAttr(resourceName, "policy.1.src_ip", fmt.Sprintf("tft-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "policy.1.log_enabled", "false"),
-					resource.TestCheckResourceAttr(resourceName, "policy.1.dst_ip", "10.12.1.172/32"),
-					resource.TestCheckResourceAttr(resourceName, "policy.1.action", "deny"),
-					resource.TestCheckResourceAttr(resourceName, "policy.1.port", "0:65535"),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+    terraform.InitAndApply(t, terraformOptions)
+
+    firewallName := terraform.Output(t, terraformOptions, "firewall_name")
+
+    client := goaviatrix.NewClient(os.Getenv("AVIATRIX_API_KEY"), os.Getenv("AVIATRIX_API_SECRET"), os.Getenv("AVIATRIX_CONTROLLER_IP"))
+
+    foundFirewall, err := client.GetPolicyByName(firewallName)
+    assert.NoError(t, err)
+    assert.NotNil(t, foundFirewall)
+
+    assert.Equal(t, firewallName, foundFirewall.FirewallName)
+    assert.Equal(t, "allow-all", foundFirewall.BasePolicy)
+
+    expectedPolicy := []goaviatrix.FirewallPolicy{
+        {
+            Protocol:    "tcp",
+            SrcIP:       "10.15.0.224/32",
+            DstIP:       "10.12.0.172/32",
+            Action:      "deny",
+            Port:        "0:65535",
+            LogEnabled:  false,
+            RuleNumber:  1,
+            RuleComment: "",
+        },
+        {
+            Protocol:    "tcp",
+            SrcIP:       "10.1.0.0/24,10.2.0.0/24",
+            DstIP:       "10.12.1.172/32",
+            Action:      "deny",
+            Port:        "0:65535",
+            LogEnabled:  false,
+            RuleNumber:  2,
+            RuleComment: "",
+        },
+    }
+
+    assert.Equal(t, expectedPolicy, foundFirewall.Policy)
 }
 
 func testAccFirewallConfigBasic(rName string) string {

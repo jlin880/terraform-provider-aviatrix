@@ -1,22 +1,20 @@
 package aviatrix
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
 
 	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/gruntwork-io/terratest/modules/acctest"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 )
 
-func preAvxTransitGatewayPeeringCheck(t *testing.T, msgCommon string) {
-	preGatewayCheck(t, msgCommon)
-	preGateway2Check(t, msgCommon)
-}
-
 func TestAccAviatrixTransitGatewayPeering_basic(t *testing.T) {
+	t.Parallel()
+
 	rName := acctest.RandString(5)
 	vpcID1 := os.Getenv("AWS_VPC_ID")
 	region1 := os.Getenv("AWS_REGION")
@@ -34,32 +32,36 @@ func TestAccAviatrixTransitGatewayPeering_basic(t *testing.T) {
 	if skipAcc == "yes" {
 		t.Skip("Skipping Aviatrix transit gateway peering test as SKIP_TRANSIT_GATEWAY_PEERING is set")
 	}
-	msgCommon := ". Set SKIP_TRANSIT_GATEWAY_PEERING to yes to skip Aviatrix transit gateway peering tests"
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAvxTransitGatewayPeeringCheck(t, msgCommon)
+	terraformOptions := &terraform.Options{
+		TerraformDir: "./",
+		Vars: map[string]interface{}{
+			"r_name":         rName,
+			"vpc_id1":        vpcID1,
+			"vpc_id2":        vpcID2,
+			"region1":        region1,
+			"region2":        region2,
+			"subnet1":        subnet1,
+			"subnet2":        subnet2,
+			"ha_subnet1":     haSubnet1,
+			"ha_subnet2":     haSubnet2,
+			"aviatrix_email": os.Getenv("AVIATRIX_EMAIL"),
+			"aviatrix_password": os.Getenv("AVIATRIX_PASSWORD"),
+			"aviatrix_controller_ip": os.Getenv("AVIATRIX_CONTROLLER_IP"),
+			"aws_access_key": os.Getenv("AWS_ACCESS_KEY"),
+			"aws_secret_key": os.Getenv("AWS_SECRET_KEY"),
+			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckTransitGatewayPeeringDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccTransitGatewayPeeringConfigBasic(rName, vpcID1, vpcID2, region1, region2,
-					subnet1, subnet2, haSubnet1, haSubnet2),
-				Check: resource.ComposeTestCheckFunc(
-					tesAccCheckTransitGatewayPeeringExists("aviatrix_transit_gateway_peering.foo"),
-					resource.TestCheckResourceAttr(resourceName, "transit_gateway_name1", fmt.Sprintf("tfg-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "transit_gateway_name2", fmt.Sprintf("tfg2-%s", rName)),
-				),
-			},
-			{
-				ResourceName:      resourceName,
-				ImportState:       true,
-				ImportStateVerify: true,
-			},
-		},
-	})
+	}
+
+	// Clean up resources after the test is complete
+	defer terraform.Destroy(t, terraformOptions)
+
+	// Deploy the resources with Terraform
+	terraform.InitAndApply(t, terraformOptions)
+
+	// Check that the transit gateway peering exists
+	transitGatewayPeeringExists(t, terraformOptions, resourceName)
 }
 
 func testAccTransitGatewayPeeringConfigBasic(rName string, vpcID1 string, vpcID2 string, region1 string, region2 string,

@@ -1,3 +1,5 @@
+package test
+
 import (
 	"context"
 	"fmt"
@@ -10,26 +12,81 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-
 func TestAccAviatrixCloudwatchAgent_basic(t *testing.T) {
 	if os.Getenv("SKIP_CLOUDWATCH_AGENT") == "yes" {
 		t.Skip("Skipping cloudwatch agent test as SKIP_CLOUDWATCH_AGENT is set")
 	}
 
-	ctx := context.Background()
+	terraformDir := "../../examples/cloudwatch_agent"
 
-	terraformOptions := prepareCloudwatchAgentTest(t)
-	resourceName := "aviatrix_cloudwatch_agent.test_cloudwatch_agent"
+	region := "us-east-1"
+	excludedGateways := []string{"a", "b"}
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: terraformDir,
+		Vars: map[string]interface{}{
+			"cloudwatch_role_arn": "arn:aws:iam::469550033836:role/aviatrix-role-cloudwatch",
+			"region":              region,
+			"excluded_gateways":   excludedGateways,
+		},
+	}
+
+	ctx := context.Background()
 
 	defer terraform.Destroy(t, terraformOptions)
 
 	terraform.InitAndApply(t, terraformOptions)
 
-	checkCloudwatchAgentResource(t, ctx, terraformOptions, resourceName)
-	importedResourceName := importCloudwatchAgentResource(t, terraformOptions, resourceName)
+	client := testAccProvider.Meta().(*goaviatrix.Client)
+
+	resp, err := client.GetCloudwatchAgentStatusWithContext(ctx)
+	assert.NoError(t, err)
+	assert.True(t, resp.ExcludedGateways != nil)
+	assert.Equal(t, terraformOptions.Vars["region"], resp.Region)
+	assert.True(t, goaviatrix.Equivalent(resp.ExcludedGateways, terraformOptions.Vars["excluded_gateways"].([]string)))
+
+	resourceName := "aviatrix_cloudwatch_agent.test_cloudwatch_agent"
+	terraform.Import(t, terraformOptions, resourceName)
+}
+
+func TestAccAviatrixCloudwatchAgent_import(t *testing.T) {
+	if os.Getenv("SKIP_CLOUDWATCH_AGENT") == "yes" {
+		t.Skip("Skipping cloudwatch agent test as SKIP_CLOUDWATCH_AGENT is set")
+	}
+
+	terraformDir := "../../examples/cloudwatch_agent"
+
+	region := "us-east-1"
+	excludedGateways := []string{"a", "b"}
+
+	terraformOptions := &terraform.Options{
+		TerraformDir: terraformDir,
+		Vars: map[string]interface{}{
+			"cloudwatch_role_arn": "arn:aws:iam::469550033836:role/aviatrix-role-cloudwatch",
+			"region":              region,
+			"excluded_gateways":   excludedGateways,
+		},
+	}
+
+	ctx := context.Background()
+
+	defer terraform.Destroy(t, terraformOptions)
+
+	terraform.InitAndApply(t, terraformOptions)
+
+	resourceName := "aviatrix_cloudwatch_agent.test_cloudwatch_agent"
+	importedTerraformOptions := terraformOptions
+	client := testAccProvider.Meta().(*goaviatrix.Client)
+	resp, err := client.GetCloudwatchAgentStatus()
+	assert.NoError(t, err)
+
+	importedTerraformOptions.ImportState = fmt.Sprintf(`{"excluded_gateways":["%v"],"cloudwatch_role_arn":"%v","region":"%v"}`,
+		resp.ExcludedGateways, terraformOptions.Vars["cloudwatch_role_arn"], resp.Region)
+	importedResourceName := terraform.Import(t, importedTerraformOptions, resourceName)
 
 	assert.Equal(t, resourceName, importedResourceName)
 }
+
 
 func prepareCloudwatchAgentTest(t *testing.T) *terraform.Options {
 	terraformDir := "../../examples/cloudwatch_agent"

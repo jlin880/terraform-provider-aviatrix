@@ -1,60 +1,69 @@
-package aviatrix
+package test
 
 import (
-	"fmt"
-	"os"
-	"testing"
+    "context"
+    "fmt"
+    "os"
+    "testing"
+    "time"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+    "github.com/gruntwork-io/terratest/modules/random"
+    "github.com/gruntwork-io/terratest/modules/terraform"
 )
 
-func TestAccAviatrixAwsTgwVpnConn_basic(t *testing.T) {
-	var awsTgwVpnConn goaviatrix.AwsTgwVpnConn
+func TestTerraformAwsTgwVpnConn(t *testing.T) {
+    terraformOptions := &terraform.Options{
+        TerraformDir: "./",
+    }
 
-	rName := acctest.RandString(5)
-	resourceName := "aviatrix_aws_tgw_vpn_conn.test"
-	importStateVerifyIgnore := []string{"vpn_tunnel_data"}
+    skipAcc := os.Getenv("SKIP_AWS_TGW_VPN_CONN")
+    if skipAcc == "yes" {
+        t.Skip("Skipping AWS TGW VPN CONN test as SKIP_AWS_TGW_VPN_CONN is set")
+    }
 
-	skipAcc := os.Getenv("SKIP_AWS_TGW_VPN_CONN")
-	if skipAcc == "yes" {
-		t.Skip("Skipping AWS TGW VPN CONN test as SKIP_AWS_TGW_VPN_CONN is set")
-	}
+    // Clean up resources after test is done
+    defer terraform.Destroy(t, terraformOptions)
 
-	msg := ". Set SKIP_AWS_TGW_VPN_CONN to yes to skip AWS TGW VPN CONN tests"
+    // Provision resources using Terraform
+    terraform.InitAndApply(t, terraformOptions)
 
-	awsSideAsNumber := "12"
+    // Test the output
+    vpnConnectionName := fmt.Sprintf("tfc-%s", random.UniqueId())
+    awsTgwVpnConnConfig := fmt.Sprintf(`
+        resource "aviatrix_aws_tgw_vpn_conn" "test" {
+            tgw_name          = aviatrix_aws_tgw.test_aws_tgw.tgw_name
+            route_domain_name = aviatrix_aws_tgw_network_domain.Default_Domain.name
+            connection_name   = "%s"
+            public_ip         = "40.0.0.0"
+            remote_as_number  = "12"
+        }
+    `, vpnConnectionName)
 
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			preAccountCheck(t, msg)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckAwsTgwVpnConnDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccAwsTgwVpnConnConfigBasic(rName, awsSideAsNumber),
-				Check: resource.ComposeTestCheckFunc(
-					tesAccCheckAwsTgwVpnConnExists(resourceName, &awsTgwVpnConn),
-					resource.TestCheckResourceAttr(resourceName, "tgw_name", fmt.Sprintf("tft-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "route_domain_name", "Default_Domain"),
-					resource.TestCheckResourceAttr(resourceName, "connection_name", fmt.Sprintf("tfc-%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "public_ip", "40.0.0.0"),
-					resource.TestCheckResourceAttr(resourceName, "remote_as_number", awsSideAsNumber),
-				),
-			},
-			{
-				ResourceName:            resourceName,
-				ImportState:             true,
-				ImportStateVerify:       true,
-				ImportStateVerifyIgnore: importStateVerifyIgnore,
-			},
-		},
-	})
+    // Create the resource and verify it exists
+    terraformOptions.Vars["aws_tgw_vpn_conn_config"] = awsTgwVpnConnConfig
+    terraform.InitAndApply(t, terraformOptions)
+    terraform.Output(t, terraformOptions, "aws_tgw_vpn_conn_id")
+
+    // Import the resource
+    vpnConnectionId := terraform.Output(t, terraformOptions, "aws_tgw_vpn_conn_id")
+    importState := fmt.Sprintf("aviatrix_aws_tgw_vpn_conn.test %s", vpnConnectionId)
+    terraform.Import(t, terraformOptions, importState)
+
+    // Verify the imported resource
+    awsTgwVpnConnResource := terraform.Output(t, terraformOptions, "aviatrix_aws_tgw_vpn_conn.test")
+    expectedAwsTgwVpnConnResource := fmt.Sprintf(`{
+        "connection_name": "%s",
+        "tgw_name": "tft-%s",
+        "route_domain_name": "Default_Domain",
+        "public_ip": "40.0.0.0",
+        "remote_as_number": "12"
+    }`, vpnConnectionName, terraformOptions.Vars["name"].(string))
+
+    if awsTgwVpnConnResource != expectedAwsTgwVpnConnResource {
+        t.Errorf("expected %s but got %s", expectedAwsTgwVpnConnResource, awsTgwVpnConnResource)
+    }
 }
+
 
 func testAccAwsTgwVpnConnConfigBasic(rName string, awsSideAsNumber string) string {
 	return fmt.Sprintf(`

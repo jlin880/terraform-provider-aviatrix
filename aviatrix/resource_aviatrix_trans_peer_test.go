@@ -1,71 +1,83 @@
-package aviatrix
+package test
 
 import (
-	"fmt"
-	"os"
-	"testing"
+    "fmt"
+    "os"
+    "testing"
 
-	"github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
-	"github.com/gruntwork-io/terratest/modules/random"
-	"github.com/gruntwork-io/terratest/modules/terraform"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/stretchr/testify/assert"
+    "github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
+    "github.com/gruntwork-io/terratest/modules/random"
+    "github.com/gruntwork-io/terratest/modules/terraform"
+    "github.com/stretchr/testify/assert"
 )
 
-func TestAviatrixTransPeer(t *testing.T) {
-	t.Parallel()
+func TestAccAviatrixTransPeer_basic(t *testing.T) {
+    // Define test inputs
+    sourceVPC := os.Getenv("AWS_VPC_ID")
+    region1 := os.Getenv("AWS_REGION")
+    subnet1 := os.Getenv("AWS_SUBNET")
+    nextHopVPC := os.Getenv("AWS_VPC_ID2")
+    region2 := os.Getenv("AWS_REGION2")
+    subnet2 := os.Getenv("AWS_SUBNET2")
+    reachableCIDR := "192.168.0.0/16"
+    rName := random.UniqueId()
 
-	awsRegion1 := os.Getenv("AWS_REGION")
-	awsRegion2 := os.Getenv("AWS_REGION2")
-	awsVpcID1 := os.Getenv("AWS_VPC_ID")
-	awsVpcID2 := os.Getenv("AWS_VPC_ID2")
-	awsSubnetID1 := os.Getenv("AWS_SUBNET")
-	awsSubnetID2 := os.Getenv("AWS_SUBNET2")
-	awsAccessKey := os.Getenv("AWS_ACCESS_KEY_ID")
-	awsSecretKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
-	awsAccountNumber := os.Getenv("AWS_ACCOUNT_NUMBER")
-	aviatrixAccountName := fmt.Sprintf("tfa-%s", random.UniqueId())
-	sourceGatewayName := fmt.Sprintf("tfg-%s", random.UniqueId())
-	nextHopGatewayName := fmt.Sprintf("tfg2-%s", random.UniqueId())
-	reachableCIDR := "192.168.0.0/16"
+    terraformOptions := &terraform.Options{
+        TerraformDir: "../path/to/terraform/dir",
+        Vars: map[string]interface{}{
+            "account_name":       fmt.Sprintf("tfa-%s", rName),
+            "region1":            region1,
+            "region2":            region2,
+            "vpc_id1":            sourceVPC,
+            "vpc_id2":            nextHopVPC,
+            "subnet1":            subnet1,
+            "subnet2":            subnet2,
+            "aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
+            "access_account_key": os.Getenv("AWS_ACCESS_KEY"),
+            "secret_account_key": os.Getenv("AWS_SECRET_KEY"),
+            "source":             fmt.Sprintf("tfg-%s", rName),
+            "nexthop":            fmt.Sprintf("tfg2-%s", rName),
+            "reachable_cidr":     reachableCIDR,
+        },
+    }
 
-	terraformOptions := &terraform.Options{
-		TerraformDir: "../path/to/terraform/dir",
-		Vars: map[string]interface{}{
-			"account_name":       aviatrixAccountName,
-			"region1":            awsRegion1,
-			"region2":            awsRegion2,
-			"vpc_id1":            awsVpcID1,
-			"vpc_id2":            awsVpcID2,
-			"subnet1":            awsSubnetID1,
-			"subnet2":            awsSubnetID2,
-			"access_account_key": awsAccessKey,
-			"secret_account_key": awsSecretKey,
-			"aws_account_number": awsAccountNumber,
-			"source":             sourceGatewayName,
-			"nexthop":            nextHopGatewayName,
-			"reachable_cidr":     reachableCIDR,
-		},
-	}
+    // Destroy infrastructure after testing
+    defer terraform.Destroy(t, terraformOptions)
 
-	defer terraform.Destroy(t, terraformOptions)
+    // Apply the Terraform configuration
+    terraform.InitAndApply(t, terraformOptions)
 
-	terraform.InitAndApply(t, terraformOptions)
+    // Get the Aviatrix client
+    client := goaviatrix.NewClient(os.Getenv("AVIATRIX_API_KEY"), os.Getenv("AVIATRIX_API_SECRET"), os.Getenv("AVIATRIX_CONTROLLER_IP"))
 
-	client := goaviatrix.NewClient(os.Getenv("AVIATRIX_API_KEY"), os.Getenv("AVIATRIX_API_SECRET"), os.Getenv("AVIATRIX_CONTROLLER_IP"))
+    // Define expected TransPeer configuration
+    expectedTransPeer := &goaviatrix.TransPeer{
+        Source:        fmt.Sprintf("tfg-%s", rName),
+        Nexthop:       fmt.Sprintf("tfg2-%s", rName),
+        ReachableCidr: reachableCIDR,
+    }
 
-	transPeer := &goaviatrix.TransPeer{
-		Source:        sourceGatewayName,
-		Nexthop:       nextHopGatewayName,
-		ReachableCidr: reachableCIDR,
-	}
+    // Check that the TransPeer was created successfully
+    assert.NoError(t, testAccTransPeerExists(t, client, expectedTransPeer))
+}
 
-	foundTransPeer, err := client.GetTransPeer(transPeer)
-	assert.NoError(t, err)
-	assert.Equal(t, transPeer.Source, foundTransPeer.Source)
-	assert.Equal(t, transPeer.Nexthop, foundTransPeer.Nexthop)
-	assert.Equal(t, transPeer.ReachableCidr, foundTransPeer.ReachableCidr)
+func testAccTransPeerExists(t *testing.T, client *goaviatrix.Client, expectedTransPeer *goaviatrix.TransPeer) error {
+    foundTransPeer, err := client.GetTransPeer(expectedTransPeer)
+    if err != nil {
+        return err
+    }
+
+    if foundTransPeer.Source != expectedTransPeer.Source {
+        return fmt.Errorf("source Not found in created attributes")
+    }
+    if foundTransPeer.Nexthop != expectedTransPeer.Nexthop {
+        return fmt.Errorf("nexthop Not found in created attributes")
+    }
+    if foundTransPeer.ReachableCidr != expectedTransPeer.ReachableCidr {
+        return fmt.Errorf("reachable_cidr Not found in created attributes")
+    }
+
+    return nil
 }
 
 func preTransPeerCheck(t *testing.T, msgCommon string) {
