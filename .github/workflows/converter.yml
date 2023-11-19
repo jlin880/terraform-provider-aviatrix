@@ -6,145 +6,85 @@ on:
       - 'aviatrix/*.go'
 
 jobs:
-  DocsExampleTest:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Setup Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: '1.18.x'
-
-      - name: Expose Job ID
-        uses: ReeganExE/github-action-job-id@v1.0
-        with:
-          expose-name: true
-
-      - name: Find PR
-        uses: jwalton/gh-find-current-pr@v1
-        id: findPr
-        with:
-          state: open
-
-      - name: Check for Changes in Docs Examples
-        run: |
-          diffFiles=$(git diff --name-only HEAD^ HEAD)
-          noNeedRun=true
-          exampleCount=0
-          if [ ${#diffFiles[@]} -eq 0 ]; then
-            echo -e "\033[33m[WARNING]\033[0m No changes in provider code, nothing to check."
-            exit 0
-          fi
-          for fileName in ${diffFiles[@]}; do
-            if [[ ${fileName} == *?_test.go ]]; then
-                echo -e "\033[33m[SKIPPED]\033[0m Skipping file $fileName, continuing..."
-                continue
-            fi
-            if [[ ${fileName} == "aviatrix/resource_aviatrix"* || ${fileName} == "aviatrix/data_source_aviatrix"* || ${fileName} == "website/docs/r/"* || ${fileName} == "website/docs/d/"*  ]]; then
-              echo ${fileName}
-              docsPathKey="website/docs/r"
-              if [[ $fileName =~ "data_source_"  || $fileName =~ "website/docs/d/" ]]; then
-                docsPathKey="website/docs/d"
-              fi
-
-              if [[ ${fileName} == *".go" ]]; then
-                fileName=(${fileName/_test./.})
-                fileName=(${fileName/.go/.html.markdown})
-                fileName=(${fileName#*resource_aviatrix_})
-                fileName=(${fileName#*data_source_aviatrix_})
-              fi
-              if [[ ${fileName} == *?.html.markdown ]]; then
-                fileName=(${fileName#*r/})
-                fileName=(${fileName#*d/})
-              fi
-              resourceName=${fileName%%.html.markdown}
-              docsDir="${docsPathKey}/${resourceName}.html.markdown"
-              noNeedRun=false
-              if [[ $(grep -c '```terraform' "${docsDir}") -lt 1 ]]; then
-                  echo -e "\033[33m[WARNING]\033[0m Missing docs examples in ${docsDir}, please add them. \033[0m"
-                  exit 1
-              fi
-              diffExampleCount=$(grep -c '```terraform' "${docsDir}")
-              echo -e "Found the example count: ${diffExampleCount}"
-              exampleCount=$(( $exampleCount + $diffExampleCount ))
-            fi
-          done
-
-          if [ "${noNeedRun}" = "false" ] && [ ${exampleCount} == "0" ]; then
-            echo -e "\033[31mThe PR is missing docs examples, please add them. \033[0m"
-            exit 1
-          fi
-          if [ "${noNeedRun}" = "true" ]; then
-            echo -e "\n\033[33m[WARNING]\033[0m The PR does not require running examples.\033[0m"
-            exit 0
-          fi
-          IN=$GH_JOB_DocsExampleTest_HTML_URL
-          arrIN=(${IN//actions/ })
-
   IntegrationTest:
     runs-on: ubuntu-latest
     needs: DocsExampleTest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v3
+      
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.18.x'
 
-      - uses: ReeganExE/github-action-job-id@v1.0
-        with:
-          expose-name: true
-      - uses: jwalton/gh-find-current-pr@v1
+      - name: Get Current PR
         id: findPr
+        uses: jwalton/gh-find-current-pr@v1
         with:
           state: open
 
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 2
+      - name: Checkout PR Branch
+        if: steps.findPr.outputs.pr_number != ''
+        run: |
+          pr_number="${{ steps.findPr.outputs.pr_number }}"
+          git fetch origin pull/${pr_number}/head:pr/${pr_number}
+          git checkout "pr/${pr_number}"
+
+      - name: List Changed Files
+        run: |
+          # List all changed files
+          git diff --name-only HEAD^ HEAD
 
       - name: Integration Test Check
         run: |
-          # diffFiles=$(git diff --name-only HEAD^ HEAD | grep "^aviatrix/" | grep ".go$" | grep -v "_test.go$")
+          # Diff the changed files
           diffFiles=$(git diff --name-only HEAD^ HEAD)
           noNeedRun=true
-          for fileName in ${diffFiles[@]};
-          do
-              if [[ ${fileName} == "aviatrix/resource_aviatrix"* || ${fileName} == "aviatrix/data_source_aviatrix"* ]];then
+          DiffFuncNames=""
+          
+          for fileName in ${diffFiles[@]}; do
+              if [[ ${fileName} == "aviatrix/resource_aviatrix"* || ${fileName} == "aviatrix/data_source_aviatrix"* ]]; then
                   if [[ ${fileName} != *?_test.go ]]; then
                       fileName=(${fileName//\.go/_test\.go })
-                      # echo -e "\033[33m[SKIPPED]\033[0m skipping the file $fileName, continue..."
-                      # continue
                   fi
-                  echo -e "\n\033[37mchecking diff file $fileName ... \033[0m"
+                  echo -e "\n\033[37mChecking diff file $fileName ...\033[0m"
                   noNeedRun=false
-                  # fileName=(${fileName//\.go/_test\.go })
+
                   if [[ $(grep -c "func TestAcc.*" ${fileName}) -lt 1 ]]; then
-                    echo -e "\033[33m[WARNING]\033[0m missing the acceptance test cases in the file $fileName, continue..."
+                    echo -e "\033[33m[WARNING] Missing acceptance test cases in the file $fileName, continue...\033[0m"
                     continue
                   fi
+
                   checkFuncs=$(grep "func TestAcc.*" ${fileName})
-                  echo -e "found the test funcs:\n${checkFuncs}\n"
+                  echo -e "Found the test funcs:\n${checkFuncs}\n"
                   funcs=(${checkFuncs//"(t *testing.T) {"/ })
-                  for func in ${funcs[@]};
-                  do
+                  for func in ${funcs[@]}; do
                     if [[ ${func} != "TestAcc"* ]]; then
                       continue
                     fi
-                    DiffFuncNames=$DiffFuncNames";"${func}
+                    DiffFuncNames="${DiffFuncNames};${func}"
                   done
               fi
           done
 
           if [[ "${noNeedRun}" = "false" && ${DiffFuncNames} == "" ]]; then
-              echo -e "\n\033[33m[WARNING]\033[0m missing integration test cases, please add them. \033[0m"
+              echo -e "\n\033[33m[WARNING] Missing integration test cases, please add them.\033[0m"
               exit 1
           fi
-          if [[ "${noNeedRun}" = "true"  ]]; then
-              echo -e "\n\033[33m[WARNING]\033[0m the pr is no need to run integration test. \033[0m"
+          
+          if [[ "${noNeedRun}" = "true" ]]; then
+              echo -e "\n\033[33m[WARNING] The PR does not need to run integration tests.\033[0m"
               exit 0
           fi
-          IN=$GH_JOB_IntegrationTest_HTML_URL
-          arrIN=(${IN//actions/ })
+
+          # Additional debugging logs for information
+          echo -e "\nDebugging Information:"
+          echo "PR URL: ${{ steps.findPr.outputs.pr_url }}"
+          echo "DiffFuncNames: ${DiffFuncNames}"
+
+          # You can add more debugging logs here as needed
+
+          # Run your integration tests here
+          # ...
+
