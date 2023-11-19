@@ -3,7 +3,7 @@ name: Terraform Integration Checks
 on:
   push:
     branches:
-      - main
+      - master
     paths:
       - "aviatrix/*.go"
   workflow_dispatch:
