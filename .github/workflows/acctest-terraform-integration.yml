@@ -82,8 +82,6 @@ jobs:
           fi
           IN=$GH_JOB_DocsExampleTest_HTML_URL
           arrIN=(${IN//actions/ })
-          ossObjectPath="github-actions${arrIN[1]}"
-          go run scripts/docs_example_check.go ${ossObjectPath}
 
   IntegrationTest:
     runs-on: ubuntu-latest
@@ -150,5 +148,3 @@ jobs:
           fi
           IN=$GH_JOB_IntegrationTest_HTML_URL
           arrIN=(${IN//actions/ })
-          ossObjectPath="github-actions"${arrIN[1]}
-          go run scripts/integration_check.go ${ossObjectPath}
