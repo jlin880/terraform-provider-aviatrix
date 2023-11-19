@@ -411,16 +411,32 @@ func resourceAviatrixGateway() *schema.Resource {
 				Description: "A map of tags to assign to the gateway.",
 			},
 			"enable_spot_instance": {
-				Type:         schema.TypeBool,
-				Optional:     true,
+				Type:     schema.TypeBool,
+				Optional: true,
+				ForceNew: true,
+				ValidateFunc: func(val interface{}, key string) (warns []string, errs []error) {
+					v := val.(bool)
+					if !v {
+						errs = append(errs, fmt.Errorf("expected %s to true to enable spot instance, got: %v", key, val))
+						return warns, errs
+					}
+					return
+				},
 				Description:  "Enable spot instance. NOT supported for production deployment.",
 				RequiredWith: []string{"spot_price"},
 			},
 			"spot_price": {
 				Type:         schema.TypeString,
 				Optional:     true,
+				ForceNew:     true,
 				Description:  "Price for spot instance. NOT supported for production deployment.",
 				RequiredWith: []string{"enable_spot_instance"},
+			},
+			"delete_spot": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				ForceNew:    true,
+				Description: "If set true, the spot instance will be deleted on eviction. Otherwise, the instance will be deallocated on eviction. Only supports Azure.",
 			},
 			"rx_queue_size": {
 				Type:         schema.TypeString,
@@ -921,15 +937,20 @@ func resourceAviatrixGatewayCreate(d *schema.ResourceData, meta interface{}) err
 
 	enableSpotInstance := d.Get("enable_spot_instance").(bool)
 	spotPrice := d.Get("spot_price").(string)
+	deleteSpot := d.Get("delete_spot").(bool)
 	if enableSpotInstance {
-		if !goaviatrix.IsCloudType(gateway.CloudType, goaviatrix.AWSRelatedCloudTypes) {
-			return fmt.Errorf("enable_spot_instance only supports AWS related cloud types")
+		if !goaviatrix.IsCloudType(gateway.CloudType, goaviatrix.AWSRelatedCloudTypes|goaviatrix.AzureArmRelatedCloudTypes) {
+			return fmt.Errorf("enable_spot_instance only supports AWS and Azure related cloud types")
 		}
+
+		if !goaviatrix.IsCloudType(gateway.CloudType, goaviatrix.AzureArmRelatedCloudTypes) && deleteSpot {
+			return fmt.Errorf("delete_spot only supports Azure")
+		}
+
 		gateway.EnableSpotInstance = true
 		gateway.SpotPrice = spotPrice
-	} else {
-		if spotPrice != "" {
-			return fmt.Errorf("spot_price is set for enabling spot instance. Please set enable_spot_instance to true")
+		if goaviatrix.IsCloudType(gateway.CloudType, goaviatrix.AzureArmRelatedCloudTypes) {
+			gateway.DeleteSpot = deleteSpot
 		}
 	}
 
@@ -1527,7 +1548,16 @@ func resourceAviatrixGatewayRead(d *schema.ResourceData, meta interface{}) error
 	if gw.EnableSpotInstance {
 		d.Set("enable_spot_instance", true)
 		d.Set("spot_price", gw.SpotPrice)
+		if goaviatrix.IsCloudType(gw.CloudType, goaviatrix.AzureArmRelatedCloudTypes) && gw.DeleteSpot {
+			d.Set("delete_spot", gw.DeleteSpot)
+		}
 	}
+
+	enableGroGso, err := client.GetGroGsoStatus(gw)
+	if err != nil {
+		return fmt.Errorf("failed to get GRO/GSO status of gateway %s: %v", gw.GwName, err)
+	}
+	d.Set("enable_gro_gso", enableGroGso)
 
 	if gw.HaGw.GwSize == "" {
 		d.Set("peering_ha_availability_domain", "")
@@ -1604,12 +1634,6 @@ func resourceAviatrixGatewayRead(d *schema.ResourceData, meta interface{}) error
 		}
 	}
 
-	enableGroGso, err := client.GetGroGsoStatus(gw)
-	if err != nil {
-		return fmt.Errorf("failed to get GRO/GSO status of gateway %s: %v", gw.GwName, err)
-	}
-	d.Set("enable_gro_gso", enableGroGso)
-
 	return nil
 }
 
@@ -1651,12 +1675,6 @@ func resourceAviatrixGatewayUpdate(d *schema.ResourceData, meta interface{}) err
 		if o.(string) != "" && n.(string) != "" {
 			return fmt.Errorf("failed to update gateway: changing 'peering_ha_azure_eip_name_resource_group' is not allowed")
 		}
-	}
-	if d.HasChange("enable_spot_instance") {
-		return fmt.Errorf("updating enable_spot_instance is not allowed")
-	}
-	if d.HasChange("spot_price") {
-		return fmt.Errorf("updating spot_price is not allowed")
 	}
 	if d.HasChange("enable_designated_gateway") {
 		return fmt.Errorf("updating enable_designated_gateway is not allowed")

@@ -203,6 +203,7 @@ type Gateway struct {
 	FaultDomain                     string                              `form:"fault_domain,omitempty" json:"fault_domain"`
 	EnableSpotInstance              bool                                `form:"spot_instance,omitempty" json:"spot_instance"`
 	SpotPrice                       string                              `form:"spot_price,omitempty" json:"spot_price"`
+	DeleteSpot                      bool                                `form:"delete_spot,omitempty" json:"delete_spot"`
 	ImageVersion                    string                              `json:"gw_image_name"`
 	SoftwareVersion                 string                              `json:"gw_software_version"`
 	TransitVpc                      string                              `json:"transit_vpc"`
@@ -216,6 +217,7 @@ type Gateway struct {
 	LbVpcId                         string                              `json:"lb_vpc_id,omitempty"`
 	Compress                        bool                                `form:"compress,omitempty"`
 	PrimaryGwName                   string                              `json:"primary_gw_name,omitempty"`
+	EnableGlobalVpc                 bool                                `json:"global_vpc,omitempty"`
 }
 
 type HaGateway struct {

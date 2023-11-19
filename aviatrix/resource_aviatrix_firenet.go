@@ -3,6 +3,7 @@ package aviatrix
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
@@ -56,10 +57,13 @@ func resourceAviatrixFireNet() *schema.Resource {
 				ValidateFunc: validation.StringInSlice([]string{"5-Tuple", "2-Tuple"}, false),
 			},
 			"keep_alive_via_lan_interface_enabled": {
-				Type:        schema.TypeBool,
-				Optional:    true,
-				Default:     false,
-				Description: "Enable Keep Alive via Firewall LAN Interface.",
+				Type:     schema.TypeBool,
+				Optional: true,
+				Default:  false,
+				Deprecated: "Option to enable/disable keep_alive_via_lan_interface will be removed in Aviatrix provider v3.2.0. As of provider v3.1.2, disabling keep_alive_via_lan_interface will NOT be allowed." +
+					"\n\nIf you have set 'keep_alive_via_lan_interface_enabled = true' for AWS or OCI related cloud FireNet, no action is needed at this time. After you upgrade to Aviatrix provider v3.2.0, you can safely remove the 'keep_alive_via_lan_interface_enabled' attribute from your configuration." +
+					"\n\nIf you have set 'keep_alive_via_lan_interface_enabled = false' for non-GWLB AWS or OCI related cloud FireNet, you must enable it before you can upgrade to Aviatrix provider v3.2.0.",
+				Description: "Enable Keep Alive via Firewall LAN Interface. Supported for AWS and OCI related clouds only.",
 			},
 			"tgw_segmentation_for_egress_enabled": {
 				Type:        schema.TypeBool,
@@ -97,9 +101,23 @@ func resourceAviatrixFireNetCreate(d *schema.ResourceData, meta interface{}) err
 		VpcID: d.Get("vpc_id").(string),
 	}
 
-	_, err := client.GetFireNet(fireNet)
+	fireNetDetail, err := client.GetFireNet(fireNet)
 	if err != nil {
 		return fmt.Errorf("couldn't find vpc %s: %v", fireNet.VpcID, err)
+	}
+	cloudType, _ := strconv.Atoi(fireNetDetail.CloudType)
+
+	if d.Get("keep_alive_via_lan_interface_enabled").(bool) {
+		if goaviatrix.IsCloudType(cloudType, goaviatrix.GCPRelatedCloudTypes) || goaviatrix.IsCloudType(cloudType, goaviatrix.AzureArmRelatedCloudTypes) {
+			return fmt.Errorf("enabling keep alive via lan interface on FireNet does not support Azure & GCP related clouds")
+		}
+		if fireNetDetail.LanPing != "yes" {
+			return fmt.Errorf("keep alive via lan interface only supports non-GWLB AWS/OCI cloud FireNet, please set keep_alive_via_lan_interface_enabled to false")
+		}
+	} else {
+		if fireNetDetail.LanPing == "yes" {
+			return fmt.Errorf("keep alive via lan interface has to be enabled for non-GWLB AWS/OCI cloud FireNet, please set keep_alive_via_lan_interface_enabled to true")
+		}
 	}
 
 	d.SetId(fireNet.VpcID)
@@ -136,18 +154,6 @@ func resourceAviatrixFireNetCreate(d *schema.ResourceData, meta interface{}) err
 			} else {
 				return fmt.Errorf("couldn't enable egress due to %v", err)
 			}
-		}
-	}
-
-	if d.Get("keep_alive_via_lan_interface_enabled").(bool) {
-		err := client.EnableFireNetLanKeepAlive(fireNet)
-		if err != nil {
-			return fmt.Errorf("could not enable keep alive via lan interface after creating firenet: %v", err)
-		}
-	} else {
-		err := client.DisableFireNetLanKeepAlive(fireNet)
-		if err != nil {
-			return fmt.Errorf("could not disable keep alive via lan interface after creating firenet: %v", err)
 		}
 	}
 

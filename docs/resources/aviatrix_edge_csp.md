@@ -8,6 +8,8 @@ description: |-
 
 # aviatrix_edge_csp
 
+-> **NOTE:** Since V3.1.1+, please use resource **aviatrix_edge_zededa** instead. Resource **aviatrix_edge_csp** will be deprecated in the V3.2.0 release.
+
 The **aviatrix_edge_csp** resource creates the Aviatrix Edge CSP.
 
 ## Example Usage
@@ -62,7 +64,7 @@ The following arguments are supported:
 * `interfaces` - (Required) WAN/LAN/MANAGEMENT interfaces.
   * `name` - (Required) Interface name.
   * `type` - (Required) Type. Valid values: WAN, LAN, or MANAGEMENT.
-  * `bandwidth` - (Optional) Bandwidth.
+  * `bandwidth` - (Optional) The rate of data can be moved through the interface, requires an integer value. Unit is in Mb/s.
   * `enable_dhcp` - (Optional) Enable DHCP. Valid values: true, false. Default value: false.
   * `wan_public_ip` - (Optional) WAN public IP.
   * `ip_address` - (Optional) Interface static IP address.
@@ -80,9 +82,9 @@ The following arguments are supported:
 * `enable_edge_active_standby_preemptive` - (Optional) Switch to enable Preemptive Mode for Edge Active-Standby. Valid values: true, false. Default value: false.
 * `dns_server_ip` - (Optional) DNS server IP. Required and valid when `management_interface_config` is "Static".
 * `secondary_dns_server_ip` - (Optional) Secondary DNS server IP. Required and valid when `management_interface_config` is "Static".
-* `wan_interface_names` - (Optional) List of WAN interface names. Default value: ["eth0"].
-* `lan_interface_names` - (Optional) List of LAN interface names. Default value: ["eth1"].
-* `management_interface_names` - (Optional) List of management interface names. Default value: ["eth2"].
+* `wan_interface_names` - (Optional) List of WAN interface names.
+* `lan_interface_names` - (Optional) List of LAN interface names.
+* `management_interface_names` - (Optional) List of management interface names.
 * `local_as_number` - (Optional) BGP AS Number to assign to Edge CSP.
 * `prepend_as_path` - (Optional) List of AS numbers to prepend gateway BGP AS_Path field. Valid only when `local_as_number` is set. Example: ["65023", "65023"].
 * `enable_learned_cidrs_approval` - (Optional) Switch to enable learned CIDR approval. Valid values: true, false. Default value: false.

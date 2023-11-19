@@ -46,6 +46,14 @@ func resourceAviatrixSpokeTransitAttachment() *schema.Resource {
 				ForceNew:    true,
 				Description: "Learned routes will be propagated to these route tables.",
 			},
+			"tunnel_count": {
+				Type:         schema.TypeInt,
+				Optional:     true,
+				ValidateFunc: validation.IntBetween(1, 49),
+				Description: "(Optional) Advanced option. Number of public tunnels. Required with both Spoke and Transit" +
+					"to be insane mode enabled and max performance enabled. Type: Integer. Valid Range: 1-49." +
+					"Available as of provider version R3.1.3+.",
+			},
 			"enable_max_performance": {
 				Type:     schema.TypeBool,
 				Optional: true,
@@ -98,16 +106,20 @@ func resourceAviatrixSpokeTransitAttachmentCreate(d *schema.ResourceData, meta i
 		return fmt.Errorf("'spoke_prepend_as_path' and 'transit_prepend_as_path' are only valid for BGP enabled spoke gateway")
 	}
 
+	if attachment.NoMaxPerformance && attachment.InsaneModeTunnelNumber > 0 {
+		return fmt.Errorf("'tunnel_count' can only be specified with max performance enabled. Please set 'enable_max_performance' to true")
+	}
+
 	d.SetId(attachment.SpokeGwName + "~" + attachment.TransitGwName)
 	flag := false
 	defer resourceAviatrixSpokeTransitAttachmentReadIfRequired(d, meta, &flag)
 
-	try, maxTries, backoff := 0, 8, 1000*time.Millisecond
+	try, maxTries, backoff := 0, 10, 1000*time.Millisecond
 	for {
 		try++
 		err := client.CreateSpokeTransitAttachment(attachment)
 		if err != nil {
-			if strings.Contains(err.Error(), "is not up") {
+			if strings.Contains(err.Error(), "is not up") || strings.Contains(err.Error(), "is not ready") {
 				if try == maxTries {
 					return fmt.Errorf("could not attach spoke: %s to transit %s: %v", attachment.SpokeGwName, attachment.TransitGwName, err)
 				}
@@ -215,6 +227,9 @@ func resourceAviatrixSpokeTransitAttachmentRead(d *schema.ResourceData, meta int
 	}
 
 	d.Set("enable_max_performance", !transitGatewayPeering.NoMaxPerformance)
+	if !transitGatewayPeering.NoMaxPerformance && transitGatewayPeering.InsaneModeTunnelCount > 0 {
+		d.Set("tunnel_count", transitGatewayPeering.InsaneModeTunnelCount)
+	}
 
 	if attachment.SpokeBgpEnabled {
 		if transitGatewayPeering.PrependAsPath1 != "" {
@@ -285,6 +300,23 @@ func resourceAviatrixSpokeTransitAttachmentUpdate(d *schema.ResourceData, meta i
 		}
 	}
 
+	if d.HasChange("tunnel_count") {
+		transitGatewayPeering := &goaviatrix.TransitGatewayPeeringEdit{
+			TransitGatewayName1: spokeGwName,
+			TransitGatewayName2: transitGwName,
+			TunnelCount:         d.Get("tunnel_count").(int),
+		}
+
+		if transitGatewayPeering.TunnelCount > 0 && !d.Get("enable_max_performance").(bool) {
+			return fmt.Errorf("'tunnel_count' can't be updated with max performance disabled")
+		}
+
+		err := client.UpdateTransitGatewayPeeringTunnelCount(transitGatewayPeering)
+		if err != nil {
+			return fmt.Errorf("could not update tunnel_count for spoke transit attachment: %v : %v", spokeGwName+"~"+transitGwName, err)
+		}
+	}
+
 	d.Partial(false)
 	d.SetId(spokeGwName + "~" + transitGwName)
 	return resourceAviatrixSpokeTransitAttachmentRead(d, meta)
@@ -307,12 +339,13 @@ func resourceAviatrixSpokeTransitAttachmentDelete(d *schema.ResourceData, meta i
 
 func marshalSpokeTransitAttachmentInput(d *schema.ResourceData) *goaviatrix.SpokeTransitAttachment {
 	spokeTransitAttachment := &goaviatrix.SpokeTransitAttachment{
-		SpokeGwName:          d.Get("spoke_gw_name").(string),
-		TransitGwName:        d.Get("transit_gw_name").(string),
-		RouteTables:          strings.Join(getStringSet(d, "route_tables"), ","),
-		SpokePrependAsPath:   getStringList(d, "spoke_prepend_as_path"),
-		TransitPrependAsPath: getStringList(d, "transit_prepend_as_path"),
-		NoMaxPerformance:     !d.Get("enable_max_performance").(bool),
+		SpokeGwName:            d.Get("spoke_gw_name").(string),
+		TransitGwName:          d.Get("transit_gw_name").(string),
+		RouteTables:            strings.Join(getStringSet(d, "route_tables"), ","),
+		SpokePrependAsPath:     getStringList(d, "spoke_prepend_as_path"),
+		TransitPrependAsPath:   getStringList(d, "transit_prepend_as_path"),
+		InsaneModeTunnelNumber: d.Get("tunnel_count").(int),
+		NoMaxPerformance:       !d.Get("enable_max_performance").(bool),
 	}
 
 	return spokeTransitAttachment

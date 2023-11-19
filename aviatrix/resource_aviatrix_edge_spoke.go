@@ -82,7 +82,7 @@ func resourceAviatrixEdgeSpoke() *schema.Resource {
 				DiffSuppressFunc: func(k, old, new string, d *schema.ResourceData) bool {
 					return old != ""
 				},
-				Description: "The location where the Edge as a CaaG ZTP file will be stored.",
+				Description: "The location where the ZTP file will be stored.",
 			},
 			"local_as_number": {
 				Type:         schema.TypeString,
@@ -104,14 +104,12 @@ func resourceAviatrixEdgeSpoke() *schema.Resource {
 			"enable_edge_active_standby": {
 				Type:        schema.TypeBool,
 				Optional:    true,
-				ForceNew:    true,
 				Default:     false,
 				Description: "Enables Edge Active-Standby Mode.",
 			},
 			"enable_edge_active_standby_preemptive": {
 				Type:        schema.TypeBool,
 				Optional:    true,
-				ForceNew:    true,
 				Default:     false,
 				Description: "Enables Preemptive Mode for Edge Active-Standby, available only with Active-Standby enabled.",
 			},
@@ -238,6 +236,8 @@ func resourceAviatrixEdgeSpoke() *schema.Resource {
 				},
 			},
 		},
+		DeprecationMessage: "Since V3.1.2+, please use resource aviatrix_edge_gateway_selfmanaged instead. Resource " +
+			"aviatrix_edge_spoke will be deprecated in the V3.2.0 release.",
 	}
 }
 
@@ -296,10 +296,6 @@ func resourceAviatrixEdgeSpokeCreate(ctx context.Context, d *schema.ResourceData
 	// checks before creation
 	if !edgeSpoke.EnableEdgeActiveStandby && edgeSpoke.EnableEdgeActiveStandbyPreemptive {
 		return diag.Errorf("could not configure Preemptive Mode with Active-Standby disabled")
-	} else if edgeSpoke.EnableEdgeActiveStandby && !edgeSpoke.EnableEdgeActiveStandbyPreemptive {
-		edgeSpoke.ActiveStandby = "non-preemptive"
-	} else if edgeSpoke.EnableEdgeActiveStandbyPreemptive {
-		edgeSpoke.ActiveStandby = "preemptive"
 	}
 
 	if !edgeSpoke.EnableLearnedCidrsApproval && len(edgeSpoke.ApprovedLearnedCidrs) != 0 {
@@ -428,6 +424,13 @@ func resourceAviatrixEdgeSpokeCreate(ctx context.Context, d *schema.ResourceData
 		}
 	}
 
+	if edgeSpoke.EnableEdgeActiveStandby || edgeSpoke.EnableEdgeActiveStandbyPreemptive {
+		err := client.UpdateEdgeSpoke(ctx, edgeSpoke)
+		if err != nil {
+			return diag.Errorf("could not update Edge active standby or Edge active standby preemptive after Edge as a Spoke creation: %v", err)
+		}
+	}
+
 	return resourceAviatrixEdgeSpokeReadIfRequired(ctx, d, meta, &flag)
 }
 
@@ -469,6 +472,10 @@ func resourceAviatrixEdgeSpokeRead(ctx context.Context, d *schema.ResourceData, 
 	d.Set("enable_edge_active_standby", edgeSpoke.EnableEdgeActiveStandby)
 	d.Set("enable_edge_active_standby_preemptive", edgeSpoke.EnableEdgeActiveStandbyPreemptive)
 	d.Set("enable_learned_cidrs_approval", edgeSpoke.EnableLearnedCidrsApproval)
+
+	if edgeSpoke.ZtpFileType == "iso" || edgeSpoke.ZtpFileType == "cloud-init" {
+		d.Set("ztp_file_type", edgeSpoke.ZtpFileType)
+	}
 
 	if edgeSpoke.ManagementEgressIpPrefix == "" {
 		d.Set("management_egress_ip_prefix_list", nil)
@@ -543,6 +550,10 @@ func resourceAviatrixEdgeSpokeUpdate(ctx context.Context, d *schema.ResourceData
 	edgeSpoke := marshalEdgeSpokeInput(d)
 
 	// checks before update
+	if !edgeSpoke.EnableEdgeActiveStandby && edgeSpoke.EnableEdgeActiveStandbyPreemptive {
+		return diag.Errorf("could not configure Preemptive Mode with Active-Standby disabled")
+	}
+
 	if !edgeSpoke.EnableLearnedCidrsApproval && len(edgeSpoke.ApprovedLearnedCidrs) != 0 {
 		return diag.Errorf("'approved_learned_cidrs' must be empty if 'enable_learned_cidrs_approval' is false")
 	}
@@ -573,13 +584,6 @@ func resourceAviatrixEdgeSpokeUpdate(ctx context.Context, d *schema.ResourceData
 	}
 	gatewayForGatewayFunctions := &goaviatrix.Gateway{
 		GwName: edgeSpoke.GwName,
-	}
-
-	if d.HasChanges("management_egress_ip_prefix_list", "interfaces") {
-		err := client.UpdateEdgeSpoke(ctx, edgeSpoke)
-		if err != nil {
-			return diag.Errorf("could not update management egress ip prefix list or WAN/LAN/MANAGEMENT interfaces during Edge as a Spoke update: %v", err)
-		}
 	}
 
 	if d.HasChanges("local_as_number", "prepend_as_path") {
@@ -705,6 +709,15 @@ func resourceAviatrixEdgeSpokeUpdate(ctx context.Context, d *schema.ResourceData
 		err := client.SetRxQueueSize(gatewayForGatewayFunctions)
 		if err != nil {
 			return diag.Errorf("could not update rx queue size during Edge as a Spoke update: %v", err)
+		}
+	}
+
+	if d.HasChanges("management_egress_ip_prefix_list", "interfaces", "enable_edge_active_standby",
+		"enable_edge_active_standby_preemptive") {
+		err := client.UpdateEdgeSpoke(ctx, edgeSpoke)
+		if err != nil {
+			return diag.Errorf("could not update management egress ip prefix list, WAN/LAN/MANAGEMENT interfaces, "+
+				"Edge active standby or Edge active standby preemptive during Edge as a Spoke update: %v", err)
 		}
 	}
 

@@ -153,6 +153,7 @@ func resourceAviatrixTransitGateway() *schema.Resource {
 				Type:        schema.TypeBool,
 				Optional:    true,
 				Default:     false,
+				ForceNew:    true,
 				Description: "Enable Insane Mode for Transit. Valid values: true, false. Supported for AWS/AWSGov, GCP, Azure and OCI. If insane mode is enabled, gateway size has to at least be c5 size for AWS and Standard_D3_v2 size for Azure.",
 			},
 			"enable_firenet": {
@@ -402,7 +403,6 @@ func resourceAviatrixTransitGateway() *schema.Resource {
 			"bgp_lan_interfaces_count": {
 				Type:         schema.TypeInt,
 				Optional:     true,
-				Default:      1,
 				ValidateFunc: validation.IntAtLeast(1),
 				Description:  "Number of interfaces that will be created for BGP over LAN enabled Azure transit. Applies on HA Transit as well if enabled. Updatable as of provider version 3.0.3+.",
 			},
@@ -474,16 +474,32 @@ func resourceAviatrixTransitGateway() *schema.Resource {
 				Description: "A map of tags to assign to the transit gateway.",
 			},
 			"enable_spot_instance": {
-				Type:         schema.TypeBool,
-				Optional:     true,
+				Type:     schema.TypeBool,
+				Optional: true,
+				ForceNew: true,
+				ValidateFunc: func(val interface{}, key string) (warns []string, errs []error) {
+					v := val.(bool)
+					if !v {
+						errs = append(errs, fmt.Errorf("expected %s to true to enable spot instance, got: %v", key, val))
+						return warns, errs
+					}
+					return
+				},
 				Description:  "Enable spot instance. NOT supported for production deployment.",
 				RequiredWith: []string{"spot_price"},
 			},
 			"spot_price": {
 				Type:         schema.TypeString,
 				Optional:     true,
+				ForceNew:     true,
 				Description:  "Price for spot instance. NOT supported for production deployment.",
 				RequiredWith: []string{"enable_spot_instance"},
+			},
+			"delete_spot": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				ForceNew:    true,
+				Description: "If set true, the spot instance will be deleted on eviction. Otherwise, the instance will be deallocated on eviction. Only supports Azure.",
 			},
 			"rx_queue_size": {
 				Type:         schema.TypeString,
@@ -907,9 +923,11 @@ func resourceAviatrixTransitGatewayCreate(d *schema.ResourceData, meta interface
 	if bgpOverLan && !(goaviatrix.IsCloudType(cloudType, goaviatrix.AzureArmRelatedCloudTypes|goaviatrix.GCP)) {
 		return fmt.Errorf("'enable_bgp_over_lan' is only valid for GCP (4), Azure (8), AzureGov (32) or AzureChina (2048)")
 	}
-	bgpLanInterfacesCount := d.Get("bgp_lan_interfaces_count").(int)
-	if bgpLanInterfacesCount != 1 && (!bgpOverLan || !goaviatrix.IsCloudType(cloudType, goaviatrix.AzureArmRelatedCloudTypes)) {
+	bgpLanInterfacesCount, isCountSet := d.GetOk("bgp_lan_interfaces_count")
+	if isCountSet && (!bgpOverLan || !goaviatrix.IsCloudType(cloudType, goaviatrix.AzureArmRelatedCloudTypes)) {
 		return fmt.Errorf("'bgp_lan_interfaces_count' is only valid for BGP over LAN enabled transit for Azure (8), AzureGov (32) or AzureChina (2048)")
+	} else if !isCountSet && bgpOverLan && goaviatrix.IsCloudType(cloudType, goaviatrix.AzureArmRelatedCloudTypes) {
+		return fmt.Errorf("please specify 'bgp_lan_interfaces_count' for BGP over LAN enabled Azure transit: %s", gateway.GwName)
 	}
 	var bgpLanVpcID []string
 	var bgpLanSpecifySubnet []string
@@ -946,7 +964,7 @@ func resourceAviatrixTransitGatewayCreate(d *schema.ResourceData, meta interface
 			gateway.BgpLanVpcID = strings.Join(bgpLanVpcID, ",")
 			gateway.BgpLanSpecifySubnet = strings.Join(bgpLanSpecifySubnet, ",")
 		} else if goaviatrix.IsCloudType(cloudType, goaviatrix.AzureArmRelatedCloudTypes) {
-			gateway.BgpLanInterfacesCount = bgpLanInterfacesCount
+			gateway.BgpLanInterfacesCount = bgpLanInterfacesCount.(int)
 		}
 	}
 
@@ -1042,15 +1060,20 @@ func resourceAviatrixTransitGatewayCreate(d *schema.ResourceData, meta interface
 
 	enableSpotInstance := d.Get("enable_spot_instance").(bool)
 	spotPrice := d.Get("spot_price").(string)
+	deleteSpot := d.Get("delete_spot").(bool)
 	if enableSpotInstance {
-		if !goaviatrix.IsCloudType(gateway.CloudType, goaviatrix.AWSRelatedCloudTypes) {
-			return fmt.Errorf("enable_spot_instance only supports AWS related cloud types")
+		if !goaviatrix.IsCloudType(gateway.CloudType, goaviatrix.AWSRelatedCloudTypes|goaviatrix.AzureArmRelatedCloudTypes) {
+			return fmt.Errorf("enable_spot_instance only supports AWS and Azure related cloud types")
 		}
+
+		if !goaviatrix.IsCloudType(gateway.CloudType, goaviatrix.AzureArmRelatedCloudTypes) && deleteSpot {
+			return fmt.Errorf("delete_spot only supports Azure")
+		}
+
 		gateway.EnableSpotInstance = true
 		gateway.SpotPrice = spotPrice
-	} else {
-		if spotPrice != "" {
-			return fmt.Errorf("spot_price is set for enabling spot instance. Please set enable_spot_instance to true")
+		if goaviatrix.IsCloudType(gateway.CloudType, goaviatrix.AzureArmRelatedCloudTypes) {
+			gateway.DeleteSpot = deleteSpot
 		}
 	}
 
@@ -1177,6 +1200,9 @@ func resourceAviatrixTransitGatewayCreate(d *schema.ResourceData, meta interface
 
 		if privateModeInfo.EnablePrivateMode {
 			haPrivateModeSubnetZone := d.Get("ha_private_mode_subnet_zone").(string)
+			if haPrivateModeSubnetZone == "" && goaviatrix.IsCloudType(gateway.CloudType, goaviatrix.AWSRelatedCloudTypes) {
+				return fmt.Errorf("%q must be set when creating a Transit HA Gateway in AWS with Private Mode enabled on the Controller", "ha_private_mode_subnet_zone")
+			}
 			transitHaGw.Subnet = haSubnet + "~~" + haPrivateModeSubnetZone
 		}
 
@@ -1629,10 +1655,10 @@ func resourceAviatrixTransitGatewayRead(d *schema.ResourceData, meta interface{}
 	d.Set("enable_active_standby", gw.EnableActiveStandby)
 	d.Set("enable_active_standby_preemptive", gw.EnableActiveStandbyPreemptive)
 	d.Set("enable_s2c_rx_balancing", gw.EnableS2CRxBalancing)
-	if goaviatrix.IsCloudType(gw.CloudType, goaviatrix.AzureArmRelatedCloudTypes) && gw.BgpLanInterfacesCount > 1 {
+	if goaviatrix.IsCloudType(gw.CloudType, goaviatrix.AzureArmRelatedCloudTypes) && gw.EnableBgpOverLan {
 		d.Set("bgp_lan_interfaces_count", gw.BgpLanInterfacesCount)
 	} else {
-		d.Set("bgp_lan_interfaces_count", 1)
+		d.Set("bgp_lan_interfaces_count", nil)
 	}
 	d.Set("enable_bgp_over_lan", goaviatrix.IsCloudType(gw.CloudType, goaviatrix.AzureArmRelatedCloudTypes|goaviatrix.GCPRelatedCloudTypes) && gw.EnableBgpOverLan)
 	if goaviatrix.IsCloudType(gw.CloudType, goaviatrix.GCPRelatedCloudTypes) && gw.EnableBgpOverLan {
@@ -1716,7 +1742,7 @@ func resourceAviatrixTransitGatewayRead(d *schema.ResourceData, meta interface{}
 	}
 
 	if _, zoneIsSet := d.GetOk("zone"); goaviatrix.IsCloudType(gw.CloudType, goaviatrix.AzureArmRelatedCloudTypes) && (isImport || zoneIsSet) &&
-		gw.GatewayZone != "AvailabilitySet" {
+		gw.GatewayZone != "AvailabilitySet" && gw.LbVpcId == "" {
 		d.Set("zone", "az-"+gw.GatewayZone)
 	}
 	d.Set("enable_vpc_dns_server", goaviatrix.IsCloudType(gw.CloudType, goaviatrix.AWSRelatedCloudTypes|goaviatrix.AzureArmRelatedCloudTypes|goaviatrix.AliCloudRelatedCloudTypes) && gw.EnableVpcDnsServer == "Enabled")
@@ -1881,14 +1907,27 @@ func resourceAviatrixTransitGatewayRead(d *schema.ResourceData, meta interface{}
 	if gw.EnableSpotInstance {
 		d.Set("enable_spot_instance", true)
 		d.Set("spot_price", gw.SpotPrice)
+		if goaviatrix.IsCloudType(gw.CloudType, goaviatrix.AzureArmRelatedCloudTypes) && gw.DeleteSpot {
+			d.Set("delete_spot", gw.DeleteSpot)
+		}
 	}
 
 	d.Set("private_mode_lb_vpc_id", gw.LbVpcId)
-	if gw.LbVpcId != "" && goaviatrix.IsCloudType(gw.CloudType, goaviatrix.AWSRelatedCloudTypes) {
-		d.Set("private_mode_subnet_zone", gw.GatewayZone)
+	if gw.LbVpcId != "" && gw.GatewayZone != "AvailabilitySet" {
+		if goaviatrix.IsCloudType(gw.CloudType, goaviatrix.AWSRelatedCloudTypes) {
+			d.Set("private_mode_subnet_zone", gw.GatewayZone)
+		} else if goaviatrix.IsCloudType(gw.CloudType, goaviatrix.AzureArmRelatedCloudTypes) {
+			d.Set("private_mode_subnet_zone", "az-"+gw.GatewayZone)
+		}
 	} else {
 		d.Set("private_mode_subnet_zone", nil)
 	}
+
+	enableGroGso, err := client.GetGroGsoStatus(gw)
+	if err != nil {
+		return fmt.Errorf("failed to get GRO/GSO status of transit gateway %s: %v", gw.GwName, err)
+	}
+	d.Set("enable_gro_gso", enableGroGso)
 
 	if gw.HaGw.GwSize == "" {
 		d.Set("ha_availability_domain", "")
@@ -1915,7 +1954,7 @@ func resourceAviatrixTransitGatewayRead(d *schema.ResourceData, meta interface{}
 	if goaviatrix.IsCloudType(gw.HaGw.CloudType, goaviatrix.AWSRelatedCloudTypes|goaviatrix.AzureArmRelatedCloudTypes|goaviatrix.OCIRelatedCloudTypes|goaviatrix.AliCloudRelatedCloudTypes) {
 		d.Set("ha_subnet", gw.HaGw.VpcNet)
 		if zone := d.Get("ha_zone"); goaviatrix.IsCloudType(gw.HaGw.CloudType, goaviatrix.AzureArmRelatedCloudTypes) && (isImport || zone.(string) != "") {
-			if gw.HaGw.GatewayZone != "AvailabilitySet" {
+			if gw.LbVpcId == "" && gw.HaGw.GatewayZone != "AvailabilitySet" {
 				d.Set("ha_zone", "az-"+gw.HaGw.GatewayZone)
 			} else {
 				d.Set("ha_zone", "")
@@ -1959,8 +1998,12 @@ func resourceAviatrixTransitGatewayRead(d *schema.ResourceData, meta interface{}
 		d.Set("ha_oob_availability_zone", gw.HaGw.GatewayZone)
 	}
 
-	if gw.LbVpcId != "" && goaviatrix.IsCloudType(gw.HaGw.CloudType, goaviatrix.AWSRelatedCloudTypes) {
-		d.Set("ha_private_mode_subnet_zone", gw.HaGw.GatewayZone)
+	if gw.LbVpcId != "" && gw.GatewayZone != "AvailabilitySet" {
+		if goaviatrix.IsCloudType(gw.CloudType, goaviatrix.AWSRelatedCloudTypes) {
+			d.Set("ha_private_mode_subnet_zone", gw.HaGw.GatewayZone)
+		} else if goaviatrix.IsCloudType(gw.CloudType, goaviatrix.AzureArmRelatedCloudTypes) {
+			d.Set("ha_private_mode_subnet_zone", "az-"+gw.HaGw.GatewayZone)
+		}
 	} else {
 		d.Set("ha_private_mode_subnet_zone", "")
 	}
@@ -1979,12 +2022,6 @@ func resourceAviatrixTransitGatewayRead(d *schema.ResourceData, meta interface{}
 			log.Printf("[WARN] could not get Azure EIP name and resource group for the HA Gateway %s", gw.GwName)
 		}
 	}
-
-	enableGroGso, err := client.GetGroGsoStatus(gw)
-	if err != nil {
-		return fmt.Errorf("failed to get GRO/GSO status of transit gateway %s: %v", gw.GwName, err)
-	}
-	d.Set("enable_gro_gso", enableGroGso)
 
 	return nil
 }
@@ -2040,12 +2077,6 @@ func resourceAviatrixTransitGatewayUpdate(d *schema.ResourceData, meta interface
 		if o.(string) != "" && n.(string) != "" {
 			return fmt.Errorf("failed to update transit gateway: changing 'ha_azure_eip_name_resource_group' is not allowed")
 		}
-	}
-	if d.HasChange("enable_spot_instance") {
-		return fmt.Errorf("updating enable_spot_instance is not allowed")
-	}
-	if d.HasChange("spot_price") {
-		return fmt.Errorf("updating spot_price is not allowed")
 	}
 	if d.HasChange("lan_vpc_id") {
 		return fmt.Errorf("updating lan_vpc_id is not allowed")
@@ -2275,8 +2306,8 @@ func resourceAviatrixTransitGatewayUpdate(d *schema.ResourceData, meta interface
 
 		if privateModeInfo.EnablePrivateMode {
 			if newHaGwEnabled || changeHaGw {
-				if _, ok := d.GetOk("ha_private_mode_subnet_zone"); !ok {
-					return fmt.Errorf("%q is required if private mode is enabled and %q is provided", "ha_private_mode_subnet_zone", "ha_subnet")
+				if _, ok := d.GetOk("ha_private_mode_subnet_zone"); !ok && goaviatrix.IsCloudType(gateway.CloudType, goaviatrix.AWSRelatedCloudTypes) {
+					return fmt.Errorf("%q is required when creating a Transit HA Gateway in AWS if private mode is enabled and %q is provided", "ha_private_mode_subnet_zone", "ha_subnet")
 				}
 
 				privateModeSubnetZone := d.Get("ha_private_mode_subnet_zone").(string)
@@ -2600,7 +2631,7 @@ func resourceAviatrixTransitGatewayUpdate(d *schema.ResourceData, meta interface
 	if enableGatewayLoadBalancer && !enableFireNet && !enableTransitFireNet {
 		return fmt.Errorf("'enable_gateway_load_balancer' is only valid when 'enable_firenet' or 'enable_transit_firenet' is set to true")
 	}
-	if enableGatewayLoadBalancer && goaviatrix.IsCloudType(gateway.CloudType, goaviatrix.AWS) {
+	if enableGatewayLoadBalancer && !goaviatrix.IsCloudType(gateway.CloudType, goaviatrix.AWS) {
 		return fmt.Errorf("'enable_gateway_load_balancer' is only valid when 'cloud_type' = 1 (AWS)")
 	}
 	if enableFireNet && enableTransitFireNet {
@@ -3286,12 +3317,20 @@ func resourceAviatrixTransitGatewayUpdate(d *schema.ResourceData, meta interface
 	}
 
 	if d.HasChanges("enable_bgp_over_lan", "bgp_lan_interfaces_count") {
-		if d.HasChange("enable_bgp_over_lan") && !d.Get("enable_bgp_over_lan").(bool) {
-			return fmt.Errorf("disabling BGP over LAN during update is not supported for transit: %s", gateway.GwName)
+		if d.HasChange("enable_bgp_over_lan") {
+			if !d.Get("enable_bgp_over_lan").(bool) {
+				return fmt.Errorf("disabling BGP over LAN during update is not supported for transit: %s", gateway.GwName)
+			}
+			if !goaviatrix.IsCloudType(gateway.CloudType, goaviatrix.AzureArmRelatedCloudTypes) {
+				return fmt.Errorf("enabling BGP over LAN during update is only supported for Azure transit")
+			}
+			if _, ok := d.GetOk("bgp_lan_interfaces_count"); !ok {
+				return fmt.Errorf("please specify 'bgp_lan_interfaces_count' to enable BGP over LAN during update for Azure transit: %s", gateway.GwName)
+			}
 		}
 		if d.HasChange("bgp_lan_interfaces_count") {
 			if !d.Get("enable_bgp_over_lan").(bool) || !goaviatrix.IsCloudType(gateway.CloudType, goaviatrix.AzureArmRelatedCloudTypes) {
-				return fmt.Errorf("could not update BGP over LAN interface count since it only supports BGP over LAN enabled spoke for Azure (8), AzureGov (32) or AzureChina (2048)")
+				return fmt.Errorf("could not update BGP over LAN interface count since it only supports BGP over LAN enabled transit for Azure (8), AzureGov (32) or AzureChina (2048)")
 			}
 			oldCount, newCount := d.GetChange("bgp_lan_interfaces_count")
 			if oldCount.(int) > newCount.(int) {

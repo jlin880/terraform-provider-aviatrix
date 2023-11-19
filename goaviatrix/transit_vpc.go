@@ -52,6 +52,7 @@ type TransitVpc struct {
 	FaultDomain                  string   `form:"fault_domain,omitempty"`
 	EnableSpotInstance           bool     `form:"spot_instance,omitempty"`
 	SpotPrice                    string   `form:"spot_price,omitempty"`
+	DeleteSpot                   bool     `form:"delete_spot,omitempty"`
 	ApprovedLearnedCidrs         []string `form:"approved_learned_cidrs"`
 	BgpLanVpcID                  string   `form:"bgp_lan_vpc"`
 	BgpLanSpecifySubnet          string   `form:"bgp_lan_subnet"`
@@ -599,12 +600,8 @@ func (c *Client) GetBgpLanIPList(transitGateway *TransitVpc) (*TransitGatewayBgp
 	for _, haBgpLanIp := range data.Results.HaBgpLanIpList {
 		haBgpLanIpList = append(haBgpLanIpList, strings.Split(haBgpLanIp, ":")[2])
 	}
-	for _, azureBgpLanIp := range data.Results.AzureBgpLanIpList {
-		azureBgpLanIpList = append(azureBgpLanIpList, azureBgpLanIp)
-	}
-	for _, azureHaBgpLanIp := range data.Results.AzureHaBgpLanIpList {
-		azureHaBgpLanIpList = append(azureHaBgpLanIpList, azureHaBgpLanIp)
-	}
+	azureBgpLanIpList = append(azureBgpLanIpList, data.Results.AzureBgpLanIpList...)
+	azureHaBgpLanIpList = append(azureHaBgpLanIpList, data.Results.AzureHaBgpLanIpList...)
 
 	return &TransitGatewayBgpLanIpInfo{
 		BgpLanIpList:        bgpLanIpList,

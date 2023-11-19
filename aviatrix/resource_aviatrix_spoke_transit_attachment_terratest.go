@@ -41,38 +41,81 @@ func TestAccAviatrixSpokeTransitAttachment_basic(t *testing.T) {
 			"subnet1":            os.Getenv("AWS_SUBNET"),
 			"subnet2":            os.Getenv("AWS_SUBNET2"),
 		},
-	}
-
-	defer terraform.Destroy(t, terraformOptions)
-
-	terraform.InitAndApply(t, terraformOptions)
-
-	assert.NoError(t, terraform.OutputStruct(resourceName, &struct{}{}))
-
-	// Import the resource using the resource ID
-	importedResource := resourceName + "-imported"
-	importedTerraformOptions := &terraform.Options{
-		TerraformDir: ".",
-		Vars: map[string]interface{}{
-			"account_name":       fmt.Sprintf("tfa-%s", rName),
-			"cloud_type":         "1",
-			"aws_account_number": os.Getenv("AWS_ACCOUNT_NUMBER"),
-			"aws_iam":            false,
-			"aws_access_key":     os.Getenv("AWS_ACCESS_KEY"),
-			"aws_secret_key":     os.Getenv("AWS_SECRET_KEY"),
-			"gw_name1":           fmt.Sprintf("tfs-%s", rName),
-			"gw_name2":           fmt.Sprintf("tft-%s", rName),
-			"vpc_id1":            os.Getenv("AWS_VPC_ID"),
-			"vpc_id2":            os.Getenv("AWS_VPC_ID2"),
-			"vpc_reg1":           os.Getenv("AWS_REGION"),
-			"vpc_reg2":           os.Getenv("AWS_REGION2"),
-			"gw_size":            "t2.micro",
-			"subnet1":            os.Getenv("AWS_SUBNET"),
-			"subnet2":            os.Getenv("AWS_SUBNET2"),
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckSpokeTransitAttachmentDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccSpokeTransitAttachmentConfigBasic(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckSpokeTransitAttachmentExists(resourceName, &spokeTransitAttachment),
+					resource.TestCheckResourceAttr(resourceName, "spoke_gw_name", fmt.Sprintf("tfs-%s", rName)),
+					resource.TestCheckResourceAttr(resourceName, "transit_gw_name", fmt.Sprintf("tft-%s", rName)),
+					resource.TestCheckResourceAttr(resourceName, "tunnel_count", "4"),
+				),
+			},
+			{
+				ResourceName:      resourceName,
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
 		},
-		ImportState:       fmt.Sprintf("%s=%s", resourceName, terraform.Output(t, resourceName)),
-		ImportStateVerify: true,
-	}
+	})
+}
+
+func testAccSpokeTransitAttachmentConfigBasic(rName string) string {
+	return fmt.Sprintf(`
+resource "aviatrix_account" "test" {
+	cloud_type         = 1
+	account_name       = "tfa-%s"
+	aws_account_number = "%s"
+	aws_iam            = false
+	aws_access_key     = "%s"
+	aws_secret_key     = "%s"
+}
+resource "aviatrix_vpc" "test" {
+	cloud_type           = 1
+	account_name         = aviatrix_account.test.account_name
+	region               = "us-west-1"
+	name                 = "aws-vpc-test-0"
+	cidr                 = "16.0.0.0/20"
+	aviatrix_transit_vpc = true
+}
+resource "aviatrix_transit_gateway" "test" {
+	cloud_type     = 1
+	account_name   = aviatrix_account.test.account_name
+	gw_name        = "tft-%s"
+	vpc_id         = aviatrix_vpc.test.vpc_id
+	vpc_reg        = aviatrix_vpc.test.region
+	gw_size        = "c5.xlarge"
+	insane_mode    = true
+	subnet         = join(".", [join(".", slice(split(".", aviatrix_vpc.test.public_subnets[0].cidr), 0, 3)), "128/26"]) #"16.0.0.128/26"
+	insane_mode_az = "us-west-1b"
+}
+resource "aviatrix_vpc" "test1" {
+	cloud_type   = 1
+	account_name = aviatrix_account.test.account_name
+	cidr         = "173.31.0.0/20"
+	name         = "aws-vpc-test-1"
+	region       = "us-east-1"
+}
+resource "aviatrix_spoke_gateway" "test" {
+	cloud_type     = 1
+	account_name   = aviatrix_account.test.account_name
+	gw_name        = "tfs-%s"
+	vpc_id         = aviatrix_vpc.test1.vpc_id
+	vpc_reg        = aviatrix_vpc.test1.region
+	gw_size        = "c5.xlarge"
+	insane_mode    = true
+	subnet         = join(".", [join(".", slice(split(".", aviatrix_vpc.test1.public_subnets[1].cidr), 0, 2)), "12.0/26"]) #"173.31.12.0/26"
+	insane_mode_az = "us-east-1a"
+}
+resource "aviatrix_spoke_transit_attachment" "test" {
+	spoke_gw_name   = aviatrix_spoke_gateway.test.id
+	transit_gw_name = aviatrix_transit_gateway.test.id
+	tunnel_count    = 4
+}
+	`, rName, os.Getenv("AWS_ACCOUNT_NUMBER"), os.Getenv("AWS_ACCESS_KEY"), os.Getenv("AWS_SECRET_KEY"),
+		rName, rName)
 }
 func testAccCheckSpokeTransitAttachmentExists(n string, spokeTransitAttachment *goaviatrix.SpokeTransitAttachment) resource.TestCheckFunc {
 	return func(s *terraform.State) error {

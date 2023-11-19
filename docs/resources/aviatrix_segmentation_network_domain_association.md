@@ -27,9 +27,11 @@ The following arguments are supported:
 ### Required
 
 * `network_domain_name` - (Required) Name of the Segmentation Network Domain.
-* `attachment_name` - (Required) Name of the transit gateway attachment, Spoke or Edge, to associate with the network domain.
+* `attachment_name` - (Required) Attachment name to associate with the network domain. For spoke gateways, use spoke gateway name. For VLAN, use <site-id>:<vlan-id>.
 
 ### Optional
+
+-> **NOTE:** `transit_gateway_name` is an optional and computed attribute now, and it will only be a computed attribute in the V3.2.0 release. 
 
 * `transit_gateway_name` - (Optional) Name of the Transit Gateway.
 

@@ -12,6 +12,12 @@ import (
     goaviatrix "github.com/AviatrixSystems/terraform-provider-aviatrix/v3/goaviatrix"
 )
 
+func prePrivateModeMulticloudEndpointCheck(t *testing.T, msgCommon string) {
+	if os.Getenv("AWS_VPC_ID") == "" {
+		t.Fatalf("%s must be set for Private Mode multicloud endpoint tests. %s", "AWS_VPC_ID", msgCommon)
+	}
+}
+
 func TestAccAviatrixPrivateModeMulticloudEndpoint_basic(t *testing.T) {
 	rName := acctest.RandString(5)
 

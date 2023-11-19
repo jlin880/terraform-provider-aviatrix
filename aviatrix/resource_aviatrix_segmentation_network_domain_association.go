@@ -29,12 +29,15 @@ func resourceAviatrixSegmentationNetworkDomainAssociation() *schema.Resource {
 				Type:        schema.TypeString,
 				Required:    true,
 				ForceNew:    true,
-				Description: "Attachment name, either Spoke or Edge.",
+				Description: "Attachment name. For spoke gateways, use spoke gateway name. For VLAN, use <site-id>:<vlan-id>.",
 			},
 			"transit_gateway_name": {
-				Type:        schema.TypeString,
-				Optional:    true,
-				ForceNew:    true,
+				Type:     schema.TypeString,
+				Optional: true,
+				Computed: true,
+				DiffSuppressFunc: func(k, old, new string, d *schema.ResourceData) bool {
+					return true
+				},
 				Description: "Transit Gateway name.",
 			},
 		},
@@ -76,12 +79,11 @@ func resourceAviatrixSegmentationNetworkDomainAssociationReadIfRequired(d *schem
 func resourceAviatrixSegmentationNetworkDomainAssociationRead(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*goaviatrix.Client)
 
-	transitGatewayName := d.Get("transit_gateway_name").(string)
 	networkDomainName := d.Get("network_domain_name").(string)
 	attachmentName := d.Get("attachment_name").(string)
 	if networkDomainName == "" {
 		id := d.Id()
-		log.Printf("[DEBUG] Looks like an import, no segmentation_network_domain_association network_domain_name received. Import Id is %s", id)
+		log.Printf("[DEBUG] Looks like an import, no network_domain_name received. Import Id is %s", id)
 		d.SetId(id)
 		parts := strings.Split(id, "~")
 		networkDomainName = parts[0]
@@ -89,7 +91,6 @@ func resourceAviatrixSegmentationNetworkDomainAssociationRead(d *schema.Resource
 	}
 
 	association := &goaviatrix.SegmentationSecurityDomainAssociation{
-		TransitGatewayName: transitGatewayName,
 		SecurityDomainName: networkDomainName,
 		AttachmentName:     attachmentName,
 	}
@@ -103,9 +104,10 @@ func resourceAviatrixSegmentationNetworkDomainAssociationRead(d *schema.Resource
 		return fmt.Errorf("could not find segmentation_network_domain_association %s: %v", networkDomainName+"~"+attachmentName, err)
 	}
 
-	d.Set("transit_gateway_name", association.TransitGatewayName)
 	d.Set("network_domain_name", networkDomainName)
 	d.Set("attachment_name", attachmentName)
+	d.Set("transit_gateway_name", association.TransitGatewayName)
+
 	d.SetId(networkDomainName + "~" + attachmentName)
 
 	return nil

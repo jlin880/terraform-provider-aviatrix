@@ -59,9 +59,7 @@ func resourceAviatrixEdgeSpokeTransitAttachment() *schema.Resource {
 			"insane_mode_tunnel_number": {
 				Type:        schema.TypeInt,
 				Optional:    true,
-				ForceNew:    true,
-				Default:     0,
-				Description: "Insane mode tunnel number.",
+				Description: "Insane mode tunnel number. Valid range for HPE over private network: 0-49. Valid range for HPE over internet: 2-20.",
 			},
 			"spoke_prepend_as_path": {
 				Type:        schema.TypeList,
@@ -96,10 +94,10 @@ func resourceAviatrixEdgeSpokeTransitAttachment() *schema.Resource {
 				Description: "Retry interval in seconds.",
 			},
 			"edge_wan_interfaces": {
-				Type:        schema.TypeList,
+				Type:        schema.TypeSet,
 				Optional:    true,
 				ForceNew:    true,
-				Description: "Edge WAN interfaces.",
+				Description: "Set of Edge WAN interfaces.",
 				Elem: &schema.Schema{
 					Type: schema.TypeString,
 				},
@@ -118,7 +116,7 @@ func marshalEdgeSpokeTransitAttachmentInput(d *schema.ResourceData) *goaviatrix.
 		InsaneModeTunnelNumber:   d.Get("insane_mode_tunnel_number").(int),
 		SpokePrependAsPath:       getStringList(d, "spoke_prepend_as_path"),
 		TransitPrependAsPath:     getStringList(d, "transit_prepend_as_path"),
-		EdgeWanInterfaces:        strings.Join(getStringList(d, "edge_wan_interfaces"), ","),
+		EdgeWanInterfaces:        strings.Join(getStringSet(d, "edge_wan_interfaces"), ","),
 	}
 
 	return edgeSpokeTransitAttachment
@@ -129,12 +127,13 @@ func resourceAviatrixEdgeSpokeTransitAttachmentCreate(ctx context.Context, d *sc
 
 	attachment := marshalEdgeSpokeTransitAttachmentInput(d)
 
-	if attachment.EnableInsaneMode && attachment.InsaneModeTunnelNumber == 0 {
-		diag.Errorf("'insane_mode_tunnel_number' must be set when insane mode is enabled")
-	}
-
-	if !attachment.EnableInsaneMode && attachment.InsaneModeTunnelNumber != 0 {
-		diag.Errorf("'insane_mode_tunnel_number' is only valid when insane mode is enabled")
+	if attachment.EnableInsaneMode {
+		if attachment.EnableOverPrivateNetwork && (attachment.InsaneModeTunnelNumber < 0 || attachment.InsaneModeTunnelNumber > 49) {
+			return diag.Errorf("valid range for HPE over private network: 0-49")
+		}
+		if !attachment.EnableOverPrivateNetwork && (attachment.InsaneModeTunnelNumber < 2 || attachment.InsaneModeTunnelNumber > 20) {
+			return diag.Errorf("valid range for HPE over internet: 2-20")
+		}
 	}
 
 	d.SetId(attachment.SpokeGwName + "~" + attachment.TransitGwName)
@@ -236,8 +235,6 @@ func resourceAviatrixEdgeSpokeTransitAttachmentRead(ctx context.Context, d *sche
 	d.Set("enable_insane_mode", attachment.EnableInsaneMode)
 	if attachment.EnableInsaneMode {
 		d.Set("insane_mode_tunnel_number", attachment.InsaneModeTunnelNumber)
-	} else {
-		d.Set("insane_mode_tunnel_number", 0)
 	}
 
 	if len(attachment.SpokePrependAsPath) != 0 {
@@ -258,7 +255,22 @@ func resourceAviatrixEdgeSpokeTransitAttachmentRead(ctx context.Context, d *sche
 		d.Set("transit_prepend_as_path", nil)
 	}
 
-	d.Set("edge_wan_interfaces", attachment.EdgeWanInterfacesResp)
+	edgeSpoke, err := client.GetEdgeSpoke(ctx, spokeGwName)
+	if err != nil {
+		return diag.Errorf("couldn't get wan interfaces for edge gateway %s: %s", spokeGwName, err)
+	}
+	var defaultWanInterfaces []string
+	for _, if0 := range edgeSpoke.InterfaceList {
+		if if0.Type == "WAN" {
+			defaultWanInterfaces = append(defaultWanInterfaces, if0.IfName)
+		}
+	}
+
+	edgeWanInterfacesInput := getStringSet(d, "edge_wan_interfaces")
+
+	if !(len(attachment.EdgeWanInterfacesResp) == 0 || (len(edgeWanInterfacesInput) == 0 && goaviatrix.Equivalent(attachment.EdgeWanInterfacesResp, defaultWanInterfaces))) {
+		d.Set("edge_wan_interfaces", attachment.EdgeWanInterfacesResp)
+	}
 
 	d.SetId(spokeGwName + "~" + transitGwName)
 	return nil
@@ -266,6 +278,19 @@ func resourceAviatrixEdgeSpokeTransitAttachmentRead(ctx context.Context, d *sche
 
 func resourceAviatrixEdgeSpokeTransitAttachmentUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	client := meta.(*goaviatrix.Client)
+
+	enableInsaneMode := d.Get("enable_insane_mode").(bool)
+	enableOverPrivateNetwork := d.Get("enable_over_private_network").(bool)
+	insaneModeTunnelNumber := d.Get("insane_mode_tunnel_number").(int)
+
+	if enableInsaneMode {
+		if enableOverPrivateNetwork && (insaneModeTunnelNumber < 0 || insaneModeTunnelNumber > 49) {
+			return diag.Errorf("valid range for HPE over private network: 0-49")
+		}
+		if !enableOverPrivateNetwork && (insaneModeTunnelNumber < 2 || insaneModeTunnelNumber > 20) {
+			return diag.Errorf("valid range for HPE over internet: 2-20")
+		}
+	}
 
 	d.Partial(true)
 
@@ -296,6 +321,19 @@ func resourceAviatrixEdgeSpokeTransitAttachmentUpdate(ctx context.Context, d *sc
 			return diag.Errorf("could not update transit_prepend_as_path: %v", err)
 		}
 
+	}
+
+	if d.HasChange("insane_mode_tunnel_number") {
+		transitGatewayPeering := &goaviatrix.TransitGatewayPeering{
+			TransitGatewayName1: spokeGwName,
+			TransitGatewayName2: transitGwName,
+			TunnelCount:         insaneModeTunnelNumber,
+		}
+
+		err := client.UpdateTransitGatewayPeering(transitGatewayPeering)
+		if err != nil {
+			return diag.Errorf("could not update insane_mode_tunnel_number for edge spoke transit attachment: %v : %v", spokeGwName+"~"+transitGwName, err)
+		}
 	}
 
 	d.Partial(false)

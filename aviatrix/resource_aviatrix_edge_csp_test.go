@@ -34,34 +34,25 @@ func TestAccAviatrixEdgeCSP_basic(t *testing.T) {
 			"username":          os.Getenv("EDGE_CSP_USERNAME"),
 			"password":          os.Getenv("EDGE_CSP_PASSWORD"),
 		},
-	}
-
-	// Clean up resources when the test finishes
-	defer terraform.Destroy(t, terraformOptions)
-
-	// Deploy the Terraform code
-	terraform.InitAndApply(t, terraformOptions)
-
-	// Check that the Edge CSP was created successfully
-	gwName := terraform.Output(t, terraformOptions, "gw_name")
-	edgeCSP, err := aviatrixClient.GetEdgeCSP(context.Background(), gwName)
-	assert.NoError(t, err)
-	assert.Equal(t, gwName, edgeCSP.GwName)
-	assert.Equal(t, "10.230.5.32/24", edgeCSP.Interfaces[0].IpAddress)
-	assert.Equal(t, "10.230.3.32/24", edgeCSP.Interfaces[1].IpAddress)
-	assert.Equal(t, "172.16.15.162/20", edgeCSP.Interfaces[2].IpAddress)
-
-	// Import the Edge CSP into Terraform state
-	importedResourceName := fmt.Sprintf("aviatrix_edge_csp.test-import-%s", random.UniqueId())
-	importedTerraformOptions := &terraform.Options{
-		TerraformDir: "../examples/edge_csp",
-
-		// Variables to pass to our Terraform code using -var options
-		Vars: map[string]interface{}{
-			"account_name": terraformOptions.Vars["account_name"],
-			"gw_name":      gwName,
-			"username":     terraformOptions.Vars["username"],
-			"password":     terraformOptions.Vars["password"],
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckEdgeCSPDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccEdgeCSPBasic(accountName, gwName, siteId),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckEdgeCSPExists(resourceName),
+					resource.TestCheckResourceAttr(resourceName, "gw_name", gwName),
+					resource.TestCheckResourceAttr(resourceName, "site_id", siteId),
+					resource.TestCheckResourceAttr(resourceName, "interfaces.0.ip_address", "10.230.5.32/24"),
+					resource.TestCheckResourceAttr(resourceName, "interfaces.1.ip_address", "10.230.3.32/24"),
+					resource.TestCheckResourceAttr(resourceName, "interfaces.2.ip_address", "172.16.15.162/20"),
+				),
+			},
+			{
+				ResourceName:      resourceName,
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
 		},
 	}
 
