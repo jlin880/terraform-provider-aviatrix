@@ -2,8 +2,8 @@ name: Terraform Integration Checks
 
 on:
   push:
-    paths:
-      - 'aviatrix/*.go'
+    branches:
+      - "master"
 
 jobs:
   IntegrationTest:
